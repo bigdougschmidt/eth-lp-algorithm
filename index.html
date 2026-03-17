@@ -206,12 +206,20 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);cursor:poi
 <!-- Inputs Tab -->
 <div id="tab-inputs" class="tab-content">
   <div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:16px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-      <div>
-        <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Enter today's market data below</div>
-        <div style="font-size:12px;color:var(--text2);">Each section shows exactly <span style="color:var(--amber);font-weight:500;">where to find the number</span> and what it means. Your inputs save automatically. Start with Section 1 and work down.</div>
+    <div style="margin-bottom:12px;">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Enter today's live market data</div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.6;">
+        Sections marked <span style="color:#e05252;font-weight:600;">⬤ Live</span> — update <strong>every session</strong> before trading. &nbsp;
+        <span style="color:#c9882a;font-weight:600;">⬤ Daily</span> — update once per day. &nbsp;
+        <span style="color:#1D9E75;font-weight:600;">⬤ Stable</span> — set once, rarely changes.
       </div>
-      <button class="reset-btn" onclick="resetInputs()">↺ Reset to defaults</button>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <div id="freshness-row-inputs" style="font-size:12px;color:var(--text3);font-family:var(--mono);"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button onclick="markRefreshed()" style="background:var(--green);border:none;color:#fff;padding:7px 16px;border-radius:var(--radius-sm);font-size:12px;font-weight:600;cursor:pointer;">✓ Confirm data is current</button>
+        <button class="reset-btn" onclick="resetInputs()">↺ Reset all to defaults</button>
+      </div>
     </div>
   </div>
   <div id="inputs-content"></div>
@@ -254,6 +262,9 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);cursor:poi
 
   <div class="card acc-amber" style="background:var(--amber-bg);">
     <div class="card-title" style="color:var(--amber);">Every Session — Pull These 9 Numbers First (5–10 min)</div>
+    <div style="background:rgba(224,82,82,0.10);border:0.5px solid rgba(224,82,82,0.35);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;font-size:12px;color:var(--text2);line-height:1.6;">
+      <strong style="color:var(--red);">Important:</strong> The numbers shown in the algorithm when you first open it are <strong>reference examples from Matt's March 16 demo session only</strong>. They are not current market data and are at least one day old. Always enter fresh data from the sources listed below before making any trading decisions. The Decision Output tab shows a warning banner until you confirm your data is current.
+      </div>
     <div class="step-box">
       <div class="step-header"><span class="step-num">① ②</span><span class="step-title">Spot Price + VWAP → from TradingView</span></div>
       <div class="step-body">Open your TradingView ETH 1H chart. The price shown in the top-left corner is your <strong>Spot Price</strong>. The VWAP line currently on your chart — hover over it to see its exact value — is your <strong>VWAP</strong>.<br>Enter both in <strong>Market Inputs → Section 1 (Price & VWAP)</strong>.</div>
@@ -364,25 +375,67 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);cursor:poi
 
 <script>
 // ─── DEFAULTS ────────────────────────────────────────────────────────────────
+// Field categories:
+// LIVE   = must update every session (default 0, forces real entry)
+// DAILY  = update once per trading day
+// STABLE = set once, rarely changes
 const DEFAULT = {
-  spot:2336,vwap:2310,lpMid:2295,
-  longLiq1:2070,longLiq2:2050,longLiq3:2025,
-  shortLiq1:2380,shortLiq2:2360,shortLiq3:2340,
-  prevHigh:2300,prevLow:2245,
-  atr1h:35,realVol:1.6,volRatio:1.2,
-  rsi:55,macdBull:true,emaBull:true,priceAccel:'positive',
-  fundingRate:0.008,oiTrend:'rising',lsRatio:0.58,
+  // LIVE — every session
+  spot:0,vwap:0,lpMid:0,
+  longLiq1:0,longLiq2:0,longLiq3:0,
+  shortLiq1:0,shortLiq2:0,shortLiq3:0,
+  atr1h:0,realVol:0,volRatio:0,
+  rsi:50,macdBull:false,emaBull:false,priceAccel:'neutral',
+  fundingRate:0,oiTrend:'flat',lsRatio:0.5,
+  poolFees24h_05:0,poolFees24h_30:0,
+  // DAILY — once per trading day
+  prevHigh:0,prevLow:0,
+  poolAPR_05:0,poolAPR_30:0,
+  poolTVL_05:0,poolTVL_30:0,
+  breakoutHeld:false,
+  // STABLE — set once
   macroRisk:'none',bullBias:true,
-  capital:100000,
-  poolAPR_05:45,poolAPR_30:28.6,
-  poolTVL_05:20,poolTVL_30:31.9,
-  poolFees24h_05:2700,poolFees24h_30:25000,
-  cyclesPerDay:6,feePerCycle:0.125,
-  breakoutHeld:false
+  capital:100000,cyclesPerDay:6,feePerCycle:0.125,
 };
+
 let inp = {...DEFAULT};
-try{const s=localStorage.getItem('lp_v31');if(s)inp={...DEFAULT,...JSON.parse(s)};}catch(e){}
-function save(){try{localStorage.setItem('lp_v31',JSON.stringify(inp));}catch(e){}}
+let dataUpdatedAt = null;
+
+try {
+  const s = localStorage.getItem('lp_v32');
+  if(s){const p=JSON.parse(s);inp={...DEFAULT,...p.inp};dataUpdatedAt=p.updatedAt||null;}
+} catch(e) {}
+
+function save(){try{localStorage.setItem('lp_v32',JSON.stringify({inp,updatedAt:dataUpdatedAt}));}catch(e){}}
+
+function markRefreshed(){
+  dataUpdatedAt=new Date().toISOString();
+  save();renderOutput();renderInputs();
+}
+
+function dataAge(){
+  if(!dataUpdatedAt)return null;
+  const mins=Math.round((Date.now()-new Date(dataUpdatedAt).getTime())/60000);
+  if(mins<60)return mins+' min ago';
+  if(mins<120)return '1 hr ago';
+  return Math.round(mins/60)+' hrs ago';
+}
+
+function hasLiveData(){
+  return inp.spot>100&&inp.vwap>100&&inp.atr1h>0&&inp.longLiq1>0&&inp.shortLiq1>0;
+}
+
+function dataIsFresh(){
+  if(!dataUpdatedAt)return false;
+  return (Date.now()-new Date(dataUpdatedAt).getTime())/3600000<4;
+}
+
+function stalenessLevel(){
+  if(!hasLiveData())return 'empty';
+  if(!dataUpdatedAt)return 'unconfirmed';
+  if(!dataIsFresh())return 'stale';
+  return 'fresh';
+}
 
 // ─── ALGORITHM ───────────────────────────────────────────────────────────────
 function runAlgo(p){
@@ -473,7 +526,34 @@ function renderOutput(){
   const spX=pct(inp.spot,lo,hi),vpX=pct(inp.vwap,lo,hi),fvX=pct(r.fv,lo,hi);
   const szLX=pct(r.szL,lo,hi),szHX=pct(r.szH,lo,hi);
   const aT=r.tier==='0.30%';
-  el.innerHTML=`
+  const sl=stalenessLevel();
+  const age=dataAge();
+  const freshnessBar=sl==='fresh'
+    ?`<div style="background:rgba(29,158,117,0.12);border:0.5px solid rgba(29,158,117,0.35);border-radius:var(--radius);padding:12px 18px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:10px;"><span style="font-size:18px;">✅</span><div><div style="font-size:13px;font-weight:600;color:var(--green);">Data is current — updated ${age}</div><div style="font-size:12px;color:var(--text2);">All live fields refreshed within the last 4 hours. Safe to trade on this output.</div></div></div>
+        <button onclick="markRefreshed()" style="background:var(--bg3);border:0.5px solid var(--green-border);color:var(--green);padding:6px 14px;border-radius:var(--radius-sm);font-size:12px;cursor:pointer;">↻ Mark refreshed again</button>
+      </div>`
+    :sl==='unconfirmed'
+    ?`<div style="background:rgba(201,136,42,0.12);border:0.5px solid rgba(201,136,42,0.4);border-left:3px solid var(--amber);border-radius:var(--radius);padding:14px 18px;margin-bottom:14px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="font-size:20px;line-height:1;">⚠️</span><div><div style="font-size:13px;font-weight:600;color:var(--amber);margin-bottom:3px;">Inputs entered but not confirmed as today's data</div><div style="font-size:12px;color:var(--text2);line-height:1.6;">You've entered data but haven't confirmed it's current. Once you've finished updating all live fields from TradingView, Coinglass, and Uniswap Analytics, click the button to confirm they reflect right now.</div></div></div>
+          <button onclick="markRefreshed()" style="background:var(--amber);border:none;color:#fff;padding:8px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">✓ Confirm data is current</button>
+        </div>
+      </div>`
+    :sl==='stale'
+    ?`<div style="background:rgba(224,82,82,0.10);border:0.5px solid rgba(224,82,82,0.4);border-left:3px solid var(--red);border-radius:var(--radius);padding:14px 18px;margin-bottom:14px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="font-size:20px;line-height:1;">🚨</span><div><div style="font-size:13px;font-weight:600;color:var(--red);margin-bottom:3px;">Stale data — last updated ${age}</div><div style="font-size:12px;color:var(--text2);line-height:1.6;">Your market data is over 4 hours old. Spot price, VWAP, liquidation zones, and ATR change constantly. <strong style="color:var(--red);">Do not trade on this output.</strong> Go to Market Inputs, refresh all 🔴 Live fields, then click Confirm.</div></div></div>
+          <button onclick="switchTab('inputs',document.querySelectorAll('.tab')[1])" style="background:var(--red);border:none;color:#fff;padding:8px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">→ Update Inputs Now</button>
+        </div>
+      </div>`
+    :`<div style="background:rgba(224,82,82,0.10);border:0.5px solid rgba(224,82,82,0.4);border-left:3px solid var(--red);border-radius:var(--radius);padding:14px 18px;margin-bottom:14px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+          <div style="display:flex;gap:10px;align-items:flex-start;"><span style="font-size:20px;line-height:1;">🚨</span><div><div style="font-size:13px;font-weight:600;color:var(--red);margin-bottom:3px;">No live data entered — showing empty state</div><div style="font-size:12px;color:var(--text2);line-height:1.6;">The fields prefilled here are <strong style="color:var(--red);">reference examples from Matt's March 16 demo session only</strong> — they are not current market data. <strong>Do not trade on this output.</strong> Go to Market Inputs and enter today's numbers from TradingView, Coinglass, and Uniswap.</div></div></div>
+          <button onclick="switchTab('inputs',document.querySelectorAll('.tab')[1])" style="background:var(--red);border:none;color:#fff;padding:8px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">→ Enter Live Data</button>
+        </div>
+      </div>`;
+  el.innerHTML=freshnessBar+`
   <div class="signal-banner" style="background:${r.sc}18;border-color:${r.sc}55;border-left:3px solid ${r.sc};">
     <div><div class="signal-text" style="color:${r.sc};">${r.sig}</div><div class="signal-note">${r.sn}</div></div>
     <div style="text-align:right;flex-shrink:0;">
@@ -604,44 +684,50 @@ function renderOutput(){
 }
 
 // ─── RENDER INPUTS ────────────────────────────────────────────────────────────
+// Field update frequency categories
+const FREQ={
+  LIVE:{label:'Live',color:'#e05252',bg:'rgba(224,82,82,0.12)',tip:'Update every session before trading'},
+  DAILY:{label:'Daily',color:'#c9882a',bg:'rgba(201,136,42,0.12)',tip:'Update once per trading day'},
+  STABLE:{label:'Stable',color:'#1D9E75',bg:'rgba(29,158,117,0.12)',tip:'Set once — only change when your strategy changes'},
+};
 const SECTIONS=[
-  {num:'1',title:'Price & VWAP',color:'var(--green)',source:'📍 From: TradingView',info:'priceVwap',full:false,fields:[
+  {num:'1',title:'Price & VWAP',color:'var(--green)',source:'📍 From: TradingView',info:'priceVwap',full:false,freq:'LIVE',fields:[
     {label:'Spot Price ($)',key:'spot',hint:'The current ETH price. On TradingView, it\'s the number shown in the top-left of your chart.',placeholder:'e.g. 2336'},
     {label:'24h VWAP ($)',key:'vwap',hint:'Volume Weighted Average Price — the fair value anchor. Hover over the VWAP line on your TradingView 1H chart to see this number.',placeholder:'e.g. 2310'},
     {label:'LP Midpoint ($)',key:'lpMid',hint:'The price with the most LP capital on Uniswap. Open the 0.05% ETH/USDC pool page → scroll to the bar chart → find the tallest bar → read that price.',placeholder:'e.g. 2295'},
   ]},
-  {num:'2',title:'Long Liquidation Zones (below spot)',color:'var(--red)',source:'📍 From: Coinglass → Liquidation Heatmap → ETH',info:'longLiq',full:false,fields:[
+  {num:'2',title:'Long Liquidation Zones (below spot)',color:'var(--red)',source:'📍 From: Coinglass → Liquidation Heatmap → ETH',info:'longLiq',full:false,freq:'LIVE',fields:[
     {label:'Long Liq 1 ($) — nearest cluster below',key:'longLiq1',hint:'The brightest cluster just below current price. These are price levels where long positions get force-liquidated if ETH drops here.',placeholder:'e.g. 2070'},
     {label:'Long Liq 2 ($)',key:'longLiq2',hint:'Second brightest long liquidation cluster below spot.',placeholder:'e.g. 2050'},
     {label:'Long Liq 3 ($)',key:'longLiq3',hint:'Third brightest long liquidation cluster below spot.',placeholder:'e.g. 2025'},
   ]},
-  {num:'3',title:'Short Liquidation Zones (above spot)',color:'var(--green)',source:'📍 From: Coinglass → Liquidation Heatmap → ETH',info:'shortLiq',full:false,fields:[
+  {num:'3',title:'Short Liquidation Zones (above spot)',color:'var(--green)',source:'📍 From: Coinglass → Liquidation Heatmap → ETH',info:'shortLiq',full:false,freq:'LIVE',fields:[
     {label:'Short Liq 1 ($) — nearest cluster above',key:'shortLiq1',hint:'The brightest cluster just above current price. Short positions get liquidated here — price often shoots up rapidly through these zones.',placeholder:'e.g. 2380'},
     {label:'Short Liq 2 ($)',key:'shortLiq2',hint:'Second brightest short liquidation cluster above spot.',placeholder:'e.g. 2360'},
     {label:'Short Liq 3 ($)',key:'shortLiq3',hint:'Third brightest short liquidation cluster above spot.',placeholder:'e.g. 2340'},
   ]},
-  {num:'4',title:'Support & Resistance',color:'var(--gray)',source:'📍 From: TradingView chart — recent highs/lows',info:'supResInp',full:false,fields:[
+  {num:'4',title:'Support & Resistance',color:'var(--gray)',source:'📍 From: TradingView chart — recent highs/lows',info:'supResInp',full:false,freq:'DAILY',fields:[
     {label:'Previous High / Key Resistance ($)',key:'prevHigh',hint:'The most recent major price high or resistance level on your chart. This is where the market previously rejected higher prices.',placeholder:'e.g. 2300'},
     {label:'Previous Low ($)',key:'prevLow',hint:'The most recent significant low — a price where buyers previously stepped in. Acts as a support floor.',placeholder:'e.g. 2245'},
     {label:'Breakout held 20-30+ min above resistance?',key:'breakoutHeld',type:'check',hint:'Check this if ETH has held above the previous high for 20-30 minutes. This activates Scenario 1 (Breakout Confirmation) and flips support/resistance levels.'},
   ]},
-  {num:'5',title:'Volatility',color:'var(--amber)',source:'📍 From: TradingView → ATR indicator (1H chart)',info:'volatility',full:false,fields:[
+  {num:'5',title:'Volatility',color:'var(--amber)',source:'📍 From: TradingView → ATR indicator (1H chart)',info:'volatility',full:false,freq:'LIVE',fields:[
     {label:'ATR-14 in $ (1h candles)',key:'atr1h',hint:'Average True Range — how many dollars ETH moves per hour on average. Look at the ATR panel at the bottom of your TradingView chart. Enter the dollar number shown (e.g. 35.42 → enter 35).',placeholder:'e.g. 35'},
     {label:'Realized Vol 24h (%)',key:'realVol',hint:'How much ETH has actually moved in the last 24h as a percentage. Roughly: (24h high − 24h low) ÷ current price × 100. Typical: 1–3%.',placeholder:'e.g. 1.6'},
     {label:'Volume Ratio (24h vol ÷ 7d avg)',key:'volRatio',hint:'Is today busier than normal? 1.0 = average day. Over 1.3 = elevated volume = trending market. Under 0.8 = quiet day = range market. Check Uniswap Analytics for 24h vs 7d volume.',placeholder:'e.g. 1.2'},
   ]},
-  {num:'6',title:'Momentum Indicators',color:'var(--blue)',source:'📍 From: TradingView — RSI, MACD, EMA indicators',info:'momentum',full:false,fields:[
+  {num:'6',title:'Momentum Indicators',color:'var(--blue)',source:'📍 From: TradingView — RSI, MACD, EMA indicators',info:'momentum',full:false,freq:'LIVE',fields:[
     {label:'RSI-14 (1h candles)',key:'rsi',hint:'Relative Strength Index. Add RSI indicator on TradingView (1H chart, length 14). Under 30 = oversold (bullish signal). Over 70 = overbought (bearish signal). 45-65 = neutral, best LP zone.',placeholder:'e.g. 55'},
     {label:'MACD Bullish Cross?',key:'macdBull',type:'check',hint:'Has the MACD line crossed above the signal line on your 1H chart? Add MACD indicator on TradingView. A bullish cross (green crossover) = upward momentum. If unsure, leave unchecked.'},
     {label:'EMA Slopes Bullish?',key:'emaBull',type:'check',hint:'Are the EMA lines (20 EMA, 50 EMA) pointing upward? Add EMA indicators on TradingView. If the fast EMA (20) is above the slow EMA (50) and both slope up = bullish. If unsure, leave unchecked.'},
     {label:'Price Acceleration',key:'priceAccel',type:'select',options:[{v:'positive',l:'Positive — price moving up with increasing speed'},{v:'neutral',l:'Neutral — price moving sideways or slowly'},{v:'negative',l:'Negative — price moving down or losing momentum'}],hint:'Is price speeding up or slowing down? If ETH just made a strong move in the last 30 min = positive. Sideways = neutral.'},
   ]},
-  {num:'7',title:'Perps & Sentiment',color:'var(--purple)',source:'📍 From: Coinglass → Funding Rate + OI',info:'perps',full:false,fields:[
+  {num:'7',title:'Perps & Sentiment',color:'var(--purple)',source:'📍 From: Coinglass → Funding Rate + OI',info:'perps',full:false,freq:'LIVE',fields:[
     {label:'Funding Rate 8h',key:'fundingRate',hint:'How much longs are paying shorts every 8 hours. Positive = longs paying (bullish bias). Negative = shorts paying (bearish bias). Find on Coinglass → Funding Rate → ETH. Enter as decimal: 0.008 = 0.8%.',placeholder:'e.g. 0.008'},
     {label:'Open Interest Trend',key:'oiTrend',type:'select',options:[{v:'rising',l:'Rising — more people opening new positions'},{v:'flat',l:'Flat — neutral positioning'},{v:'falling',l:'Falling — people closing positions'}],hint:'Is the total amount of open leveraged positions growing or shrinking? Rising OI + rising price = strong trend. Find on Coinglass → Open Interest → ETH.'},
     {label:'Long/Short Ratio (e.g. 0.58)',key:'lsRatio',hint:'What fraction of leveraged traders are long. 0.58 = 58% longs, 42% shorts. Over 0.68 = crowded longs = mean reversion risk. Under 0.45 = crowded shorts = squeeze risk. Find on Coinglass → Long/Short Ratio → ETH.',placeholder:'e.g. 0.58'},
   ]},
-  {num:'8',title:'Pool Data — Update Each Session',color:'var(--green)',source:'📍 From: info.uniswap.org → ETH/USDC pools',info:'poolData',full:false,fields:[
+  {num:'8',title:'Pool Data — Update Each Session',color:'var(--green)',source:'📍 From: info.uniswap.org → ETH/USDC pools',info:'poolData',full:false,freq:'DAILY',fields:[
     {label:'0.05% Pool — 24h Fees ($)',key:'poolFees24h_05',hint:'Total fees earned in the 0.05% ETH/USDC Uniswap pool in the last 24h. Find on Uniswap Analytics → ETH/USDC 0.05% row → "Fees" column. Enter in dollars (e.g. $2,700 → enter 2700).',placeholder:'e.g. 2700'},
     {label:'0.30% Pool — 24h Fees ($)',key:'poolFees24h_30',hint:'Total fees earned in the 0.30% ETH/USDC pool in the last 24h. Same source. This number tells you which pool is most active right now.',placeholder:'e.g. 25000'},
     {label:'0.05% Pool APR (%)',key:'poolAPR_05',hint:'Annual Percentage Rate for the 0.05% pool. Shown directly on Uniswap Analytics. If not shown: (24h fees ÷ TVL) × 365 × 100. Enter as a number (e.g. 45% → enter 45).',placeholder:'e.g. 45'},
@@ -649,7 +735,7 @@ const SECTIONS=[
     {label:'0.05% Pool TVL ($M)',key:'poolTVL_05',hint:'Total Value Locked in the 0.05% pool in millions. Enter in millions: "$20.4M" → enter 20.4. This tells you how large the pool is and how much of it your capital represents.',placeholder:'e.g. 20'},
     {label:'0.30% Pool TVL ($M)',key:'poolTVL_30',hint:'Total Value Locked in the 0.30% pool. Same as above.',placeholder:'e.g. 31.9'},
   ]},
-  {num:'9',title:'Risk, Capital & Strategy',color:'var(--amber)',source:'📍 Your settings — update as needed',info:'capital',full:false,fields:[
+  {num:'9',title:'Risk, Capital & Strategy',color:'var(--amber)',source:'📍 Your settings — update as needed',info:'capital',full:false,freq:'STABLE',fields:[
     {label:'Macro Risk Level',key:'macroRisk',type:'select',options:[{v:'none',l:'None — normal trading day'},{v:'elevated',l:'Elevated — CPI/Fed day (×1.2 bandwidth)'},{v:'high',l:'High — SIT OUT (×1.6 bandwidth)'}],hint:'Is there a major economic event today? Check the economic calendar. On FOMC or CPI days, the algorithm widens your band by 1.6× or recommends sitting out entirely.'},
     {label:'Bull Asymmetry — shift band upward?',key:'bullBias',type:'check',hint:'In a bull market, check this to shift the top of your band up 30% further and the bottom in 25%. This lets you capture more upside as price climbs. Matt uses this when ETH is clearly trending up.'},
     {label:'Capital to Deploy ($)',key:'capital',hint:'How much money you are putting into this LP position. The algorithm uses this to calculate your actual dollar returns and your % of pool TVL.',placeholder:'e.g. 100000'},
@@ -661,11 +747,13 @@ const SECTIONS=[
 function renderInputs(){
   let html='';
   for(const sec of SECTIONS){
+    const fq=FREQ[sec.freq]||FREQ.LIVE;
     html+=`<div class="inp-section">
       <div class="inp-section-header" style="border-left:3px solid ${sec.color};">
         <span class="inp-section-num">${sec.num}</span>
         <span class="inp-section-title" style="color:${sec.color};">${sec.title}</span>
         <span class="inp-section-source">${sec.source}</span>
+        <span title="${fq.tip}" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${fq.bg};color:${fq.color};white-space:nowrap;cursor:help;">⬤ ${fq.label}</span>
         <button class="info-btn" onclick="showInfo('${sec.info}')">i</button>
       </div>
       <div class="inp-fields">`;
@@ -698,6 +786,15 @@ function renderInputs(){
     html+='</div></div>';
   }
   document.getElementById('inputs-content').innerHTML=html;
+  // Update freshness row in inputs tab
+  const fri=document.getElementById('freshness-row-inputs');
+  if(fri){
+    const sl=stalenessLevel(),age=dataAge();
+    if(sl==='fresh')fri.innerHTML=`<span style="color:var(--green);">✓ Data confirmed current — ${age}</span>`;
+    else if(sl==='stale')fri.innerHTML=`<span style="color:var(--red);">⚠ Last confirmed: ${age} — re-enter live fields and click Confirm</span>`;
+    else if(sl==='unconfirmed')fri.innerHTML=`<span style="color:var(--amber);">⚠ Data entered but not confirmed — click "Confirm data is current" when done</span>`;
+    else fri.innerHTML=`<span style="color:var(--text3);">No live data entered yet — fill in 🔴 Live sections from today's sources</span>`;
+  }
 }
 
 // ─── RENDER RETURNS ───────────────────────────────────────────────────────────
@@ -905,15 +1002,23 @@ function closePopupDirect(){document.getElementById('popup-overlay').classList.r
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closePopupDirect();});
 
 // ─── CONTROLS ─────────────────────────────────────────────────────────────────
+// Live fields — changing any of these resets confirmed status
+const LIVE_FIELDS=['spot','vwap','lpMid','longLiq1','longLiq2','longLiq3','shortLiq1','shortLiq2','shortLiq3','atr1h','realVol','volRatio','rsi','macdBull','emaBull','priceAccel','fundingRate','oiTrend','lsRatio','poolFees24h_05','poolFees24h_30'];
+
 function setInp(key,val){
-  inp[key]=val;save();
+  inp[key]=val;
+  // If a live field changed, mark data as unconfirmed
+  if(LIVE_FIELDS.includes(key)) dataUpdatedAt=null;
+  save();
   if(document.getElementById('tab-output').classList.contains('active'))renderOutput();
   if(document.getElementById('tab-inputs').classList.contains('active'))renderInputs();
   if(document.getElementById('tab-returns').classList.contains('active'))renderReturns();
 }
 function resetInputs(){
-  if(confirm('Reset all inputs to March 16 session defaults?')){
-    inp={...DEFAULT};save();renderInputs();renderOutput();
+  if(confirm('Reset all fields to their default (empty) state? You will need to re-enter live data before trading.')){
+    inp={...DEFAULT};
+    dataUpdatedAt=null;
+    save();renderInputs();renderOutput();
   }
 }
 function switchTab(name,btn){
