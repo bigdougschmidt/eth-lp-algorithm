@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ETH LP Decision Algorithm v3.2</title>
+<title>ETH LP Decision Algorithm v3.4</title>
 <style>
 :root {
   --bg:#0f1117;--bg2:#161b27;--bg3:#1c2333;--bg4:#222840;
@@ -176,6 +176,8 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);cursor:poi
 .acc-amber{border-left:3px solid var(--amber)}
 .acc-purple{border-left:3px solid var(--purple)}
 .acc-gray{border-left:3px solid var(--gray)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.auto-badge{font-size:10px;font-weight:600;color:var(--green);background:var(--green-bg);border:0.5px solid var(--green-border);border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:middle;}
 </style>
 </head>
 <body>
@@ -188,7 +190,7 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);cursor:poi
     <h1>ETH LP Decision Algorithm</h1>
     <p>Concentrated liquidity positioning for ETH/USDC · Based on Matt Burks' system · March 2026</p>
   </div>
-  <div class="vtag">v3.2</div>
+  <div class="vtag">v3.4</div>
 </div>
 
 <!-- Tabs -->
@@ -222,6 +224,7 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);cursor:poi
       </div>
     </div>
   </div>
+  <div id="fetch-bar"></div>
   <div id="inputs-content"></div>
 </div>
 
@@ -368,7 +371,7 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);cursor:poi
 </div>
 
 <div class="footer">
-  <span>ETH LP Decision Algorithm v3.2 · Matt Burks / Ten4Reserve · March 2026</span>
+  <span>ETH LP Decision Algorithm v3.4 · Matt Burks / Ten4Reserve · March 2026</span>
   <span>Not financial advice. Understand the algorithm before running it live.</span>
 </div>
 </div>
@@ -435,6 +438,243 @@ function stalenessLevel(){
   if(!dataUpdatedAt)return 'unconfirmed';
   if(!dataIsFresh())return 'stale';
   return 'fresh';
+}
+
+
+// ─── LIVE DATA FETCH ENGINE ──────────────────────────────────────────────────
+// Auto-populates 13 of 18 live fields. Liquidation clusters + 3 strategy
+// toggles (macro risk, bull asymmetry, breakout held) remain manual.
+
+let fetchState = {status:'idle', errors:[], autoCount:0};
+const autoFilled = new Set(); // tracks which keys were auto-populated this session
+
+// ── Math helpers ──
+function calcEMA(closes, period) {
+  const k = 2/(period+1);
+  return closes.reduce((ema,v,i) => i===0 ? v : v*k + ema*(1-k));
+}
+function calcATR14(klines) {
+  const trs = [];
+  for(let i=1;i<klines.length;i++){
+    const h=parseFloat(klines[i][2]),l=parseFloat(klines[i][3]),pc=parseFloat(klines[i-1][4]);
+    trs.push(Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)));
+  }
+  return trs.slice(-14).reduce((a,b)=>a+b,0)/14;
+}
+function calcRSI14(closes) {
+  let g=0,l=0;
+  const sl=closes.slice(-15);
+  for(let i=1;i<sl.length;i++){const d=sl[i]-sl[i-1];d>0?g+=d:l-=d;}
+  const rs=g/(l||0.001);
+  return Math.round(100-100/(1+rs));
+}
+function calcVWAP(klines) {
+  const midnight=new Date();midnight.setUTCHours(0,0,0,0);
+  const today=klines.filter(k=>k[0]>=midnight.getTime());
+  if(!today.length) return parseFloat(klines[klines.length-1][4]);
+  let sumTPV=0,sumVol=0;
+  for(const k of today){
+    const tp=(parseFloat(k[2])+parseFloat(k[3])+parseFloat(k[4]))/3;
+    const v=parseFloat(k[5]);sumTPV+=tp*v;sumVol+=v;
+  }
+  return sumVol>0?sumTPV/sumVol:parseFloat(klines[klines.length-1][4]);
+}
+function calcRealVol(closes) {
+  const rets=closes.slice(-25).map((c,i,a)=>i>0?(c-a[i-1])/a[i-1]:0).slice(1);
+  const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
+  const variance=rets.reduce((s,r)=>s+(r-mean)**2,0)/rets.length;
+  return Math.round(Math.sqrt(variance)*100*100)/100;
+}
+
+// ── Set a field as auto-populated ──
+function autoSet(key, val) {
+  inp[key]=val;
+  autoFilled.add(key);
+}
+
+// ── Render the fetch button + status bar (called from renderInputs) ──
+function renderFetchBar() {
+  const s = fetchState.status;
+  const btnStyle = `font-size:13px;font-weight:600;padding:9px 22px;border-radius:var(--radius-sm);border:none;cursor:pointer;transition:all 0.15s;`;
+  let statusHtml = '';
+
+  if(s==='loading') {
+    statusHtml=`<div style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text2);">
+      <div style="width:16px;height:16px;border:2px solid var(--green);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0;"></div>
+      Fetching live data from Binance + Uniswap...
+    </div>`;
+  } else if(s==='success') {
+    statusHtml=`<div style="display:flex;align-items:center;gap:10px;font-size:12px;">
+      <span style="color:var(--green);font-weight:600;">✓ ${fetchState.autoCount} fields auto-populated</span>
+      <span style="color:var(--text3);">·</span>
+      <span style="color:var(--amber);">⚠ Liquidation zones (Sections 2 & 3) still need manual entry from Coinglass</span>
+    </div>`;
+  } else if(s==='partial') {
+    const errs=fetchState.errors.join(' · ');
+    statusHtml=`<div style="font-size:12px;color:var(--amber);">⚠ Partial fetch — ${fetchState.autoCount} fields populated · Issues: ${errs}</div>`;
+  } else if(s==='error') {
+    statusHtml=`<div style="font-size:12px;color:var(--red);">✗ Fetch failed — ${fetchState.errors.join(', ')} · Check your internet connection and try again.</div>`;
+  }
+
+  return `<div style="background:var(--bg3);border:0.5px solid var(--border2);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:3px;">🔄 Auto-populate live fields</div>
+        <div style="font-size:12px;color:var(--text2);">Fetches Spot · VWAP · ATR · RSI · MACD · EMA · Funding Rate · OI · L/S Ratio · Pool TVL · Fees · APR · LP Midpoint in one click. You still enter <strong style="color:var(--amber);">liquidation clusters</strong> manually from Coinglass.</div>
+      </div>
+      <button onclick="fetchLiveData()" style="${btnStyle}background:var(--green);color:#fff;" id="fetch-btn">
+        ${s==='loading'?'Fetching...':'🔄 Fetch Live Data'}
+      </button>
+    </div>
+    ${statusHtml?`<div style="margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border);">${statusHtml}</div>`:''}
+  </div>`;
+}
+
+// ── Main fetch function ──
+async function fetchLiveData() {
+  fetchState = {status:'loading', errors:[], autoCount:0};
+  autoFilled.clear();
+  // Update button immediately
+  const fbEl = document.getElementById('fetch-bar');
+  if(fbEl) fbEl.innerHTML = renderFetchBar();
+  const btn = document.getElementById('fetch-btn');
+  if(btn) btn.disabled = true;
+
+  const errors = [];
+
+  try {
+    // Fire all requests in parallel
+    const [klinesR, dailyKR, ticker24R, fundingR, oiHistR, lsR, uniR] =
+      await Promise.allSettled([
+        fetch('https://api.binance.com/api/v3/klines?symbol=ETHUSDT&interval=1h&limit=100').then(r=>r.json()),
+        fetch('https://api.binance.com/api/v3/klines?symbol=ETHUSDT&interval=1d&limit=9').then(r=>r.json()),
+        fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=ETHUSDT').then(r=>r.json()),
+        fetch('https://fapi.binance.com/fapi/v1/fundingRate?symbol=ETHUSDT&limit=1').then(r=>r.json()),
+        fetch('https://fapi.binance.com/futures/data/openInterestHist?symbol=ETHUSDT&period=1h&limit=3').then(r=>r.json()),
+        fetch('https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=ETHUSDT&period=1h&limit=2').then(r=>r.json()),
+        fetch('https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({query:`{
+            p05:pool(id:"0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640"){totalValueLockedUSD token0Price token1Price}
+            p30:pool(id:"0x8ad599c3a0ff1de082011efddc58f1908eb6e6d8"){totalValueLockedUSD token0Price token1Price}
+            d05:poolDayDatas(where:{pool:"0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640"},orderBy:date,orderDirection:desc,first:1){feesUSD tvlUSD}
+            d30:poolDayDatas(where:{pool:"0x8ad599c3a0ff1de082011efddc58f1908eb6e6d8"},orderBy:date,orderDirection:desc,first:1){feesUSD tvlUSD}
+          }`})
+        }).then(r=>r.json())
+      ]);
+
+    // ── Binance price + derived indicators ──
+    if(klinesR.status==='fulfilled' && Array.isArray(klinesR.value) && klinesR.value.length>20) {
+      const k = klinesR.value;
+      const closes = k.map(c=>parseFloat(c[4]));
+      const highs  = k.map(c=>parseFloat(c[2]));
+      const lows   = k.map(c=>parseFloat(c[3]));
+
+      autoSet('spot',  Math.round(closes[closes.length-1]*100)/100);
+      autoSet('vwap',  Math.round(calcVWAP(k)*100)/100);
+      autoSet('atr1h', Math.round(calcATR14(k)*100)/100);
+      autoSet('rsi',   calcRSI14(closes));
+      autoSet('realVol', calcRealVol(closes));
+
+      // MACD
+      const ema12 = calcEMA(closes.slice(-40),12);
+      const ema26 = calcEMA(closes,26);
+      autoSet('macdBull', ema12>ema26);
+
+      // EMA slopes
+      const ema20     = calcEMA(closes.slice(-30),20);
+      const ema50     = calcEMA(closes.slice(-60),50);
+      const ema20prev = calcEMA(closes.slice(-31,-1),20);
+      autoSet('emaBull',    ema20>ema50);
+      autoSet('priceAccel', ema20>ema20prev*1.0003?'positive':ema20<ema20prev*0.9997?'negative':'neutral');
+
+      // Prev high/low (last 24h of hourly candles)
+      autoSet('prevHigh', Math.round(Math.max(...highs.slice(-24))));
+      autoSet('prevLow',  Math.round(Math.min(...lows.slice(-24))));
+
+    } else {
+      errors.push('Binance price data failed');
+    }
+
+    // ── Volume ratio (24h vol / 7-day avg) ──
+    if(dailyKR.status==='fulfilled' && ticker24R.status==='fulfilled' &&
+       Array.isArray(dailyKR.value) && dailyKR.value.length>=7) {
+      const avg7d = dailyKR.value.slice(-8,-1).map(k=>parseFloat(k[5])).reduce((a,b)=>a+b,0)/7;
+      const todayVol = parseFloat(ticker24R.value.volume);
+      autoSet('volRatio', avg7d>0 ? Math.round(todayVol/avg7d*100)/100 : 1.0);
+    } else {
+      autoSet('volRatio', 1.0);
+    }
+
+    // ── Funding rate ──
+    if(fundingR.status==='fulfilled' && Array.isArray(fundingR.value) && fundingR.value.length>0) {
+      autoSet('fundingRate', Math.round(parseFloat(fundingR.value[0].fundingRate)*1000000)/1000000);
+    } else {
+      errors.push('Funding rate unavailable');
+    }
+
+    // ── Open Interest trend ──
+    if(oiHistR.status==='fulfilled' && Array.isArray(oiHistR.value) && oiHistR.value.length>=2) {
+      const cur  = parseFloat(oiHistR.value[oiHistR.value.length-1].sumOpenInterest);
+      const prev = parseFloat(oiHistR.value[oiHistR.value.length-2].sumOpenInterest);
+      autoSet('oiTrend', cur>prev*1.01?'rising':cur<prev*0.99?'falling':'flat');
+    } else {
+      errors.push('OI data unavailable');
+    }
+
+    // ── Long/Short ratio ──
+    if(lsR.status==='fulfilled' && Array.isArray(lsR.value) && lsR.value.length>0) {
+      const ratio = parseFloat(lsR.value[lsR.value.length-1].longShortRatio);
+      autoSet('lsRatio', Math.round(ratio/(1+ratio)*1000)/1000);
+    } else {
+      errors.push('L/S ratio unavailable');
+    }
+
+    // ── Uniswap pool data (The Graph) ──
+    if(uniR.status==='fulfilled' && uniR.value?.data) {
+      const d = uniR.value.data;
+
+      if(d.p05) {
+        autoSet('poolTVL_05', Math.round(parseFloat(d.p05.totalValueLockedUSD)/1e6*10)/10);
+        // LP midpoint: pick whichever price is in ETH range (100–50000)
+        const p0=parseFloat(d.p05.token0Price), p1=parseFloat(d.p05.token1Price);
+        const ethPrice = (p0>100&&p0<50000)?p0:(p1>100&&p1<50000)?p1:0;
+        if(ethPrice>0) autoSet('lpMid', Math.round(ethPrice));
+      }
+      if(d.p30) autoSet('poolTVL_30', Math.round(parseFloat(d.p30.totalValueLockedUSD)/1e6*10)/10);
+
+      if(d.d05&&d.d05.length>0) {
+        autoSet('poolFees24h_05', Math.round(parseFloat(d.d05[0].feesUSD)));
+        const tvl=parseFloat(d.d05[0].tvlUSD);
+        autoSet('poolAPR_05', tvl>0?Math.round(parseFloat(d.d05[0].feesUSD)/tvl*365*100*10)/10:0);
+      }
+      if(d.d30&&d.d30.length>0) {
+        autoSet('poolFees24h_30', Math.round(parseFloat(d.d30[0].feesUSD)));
+        const tvl=parseFloat(d.d30[0].tvlUSD);
+        autoSet('poolAPR_30', tvl>0?Math.round(parseFloat(d.d30[0].feesUSD)/tvl*365*100*10)/10:0);
+      }
+    } else {
+      errors.push('Uniswap pool data failed — enter Sections 8 manually from info.uniswap.org');
+    }
+
+    fetchState = {
+      status: errors.length===0?'success':'partial',
+      errors,
+      autoCount: autoFilled.size
+    };
+
+    // Mark data as confirmed if we got price data
+    if(autoFilled.has('spot')) markRefreshed();
+
+  } catch(err) {
+    console.error('Live fetch error:', err);
+    fetchState = {status:'error', errors:['Network error — check internet connection'], autoCount:0};
+  }
+
+  save();
+  renderInputs();
+  renderOutput();
 }
 
 // ─── ALGORITHM ───────────────────────────────────────────────────────────────
@@ -544,13 +784,14 @@ function renderOutput(){
     ?`<div style="background:rgba(224,82,82,0.10);border:0.5px solid rgba(224,82,82,0.4);border-left:3px solid var(--red);border-radius:var(--radius);padding:14px 18px;margin-bottom:14px;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
           <div style="display:flex;gap:10px;align-items:flex-start;"><span style="font-size:20px;line-height:1;">🚨</span><div><div style="font-size:13px;font-weight:600;color:var(--red);margin-bottom:3px;">Stale data — last updated ${age}</div><div style="font-size:12px;color:var(--text2);line-height:1.6;">Your market data is over 4 hours old. Spot price, VWAP, liquidation zones, and ATR change constantly. <strong style="color:var(--red);">Do not trade on this output.</strong> Go to Market Inputs, refresh all 🔴 Live fields, then click Confirm.</div></div></div>
-          <button onclick="switchTab('inputs',document.querySelectorAll('.tab')[1])" style="background:var(--red);border:none;color:#fff;padding:8px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">→ Update Inputs Now</button>
+          <button onclick="switchTab('inputs',document.querySelectorAll('.tab')[1])" style="background:var(--red);border:none;color:#fff;padding:8px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;" onclick="fetchLiveData()">🔄 Fetch Live Data</button>
         </div>
       </div>`
     :`<div style="background:rgba(224,82,82,0.10);border:0.5px solid rgba(224,82,82,0.4);border-left:3px solid var(--red);border-radius:var(--radius);padding:14px 18px;margin-bottom:14px;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
           <div style="display:flex;gap:10px;align-items:flex-start;"><span style="font-size:20px;line-height:1;">🚨</span><div><div style="font-size:13px;font-weight:600;color:var(--red);margin-bottom:3px;">No live data entered — showing empty state</div><div style="font-size:12px;color:var(--text2);line-height:1.6;">The fields prefilled here are <strong style="color:var(--red);">reference examples from Matt's March 16 demo session only</strong> — they are not current market data. <strong>Do not trade on this output.</strong> Go to Market Inputs and enter today's numbers from TradingView, Coinglass, and Uniswap.</div></div></div>
-          <button onclick="switchTab('inputs',document.querySelectorAll('.tab')[1])" style="background:var(--red);border:none;color:#fff;padding:8px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">→ Enter Live Data</button>
+          <button onclick="switchTab('inputs',document.querySelectorAll('.tab')[1])" style="background:var(--red);border:none;color:#fff;padding:8px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">→ Enter Inputs</button>
+          <button onclick="fetchLiveData()" style="background:var(--green);border:none;color:#fff;padding:8px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">🔄 Fetch Live Data</button>
         </div>
       </div>`;
   el.innerHTML=freshnessBar+`
@@ -745,6 +986,9 @@ const SECTIONS=[
 ];
 
 function renderInputs(){
+  // Render fetch bar
+  const fbEl=document.getElementById('fetch-bar');
+  if(fbEl) fbEl.innerHTML=renderFetchBar();
   let html='';
   for(const sec of SECTIONS){
     const fq=FREQ[sec.freq]||FREQ.LIVE;
@@ -768,18 +1012,20 @@ function renderInputs(){
           <div class="inp-hint">${f.hint||''}</div>
         </div>`;
       } else if(f.type==='select'){
+        const isAutoSel=autoFilled.has(f.key);
         html+=`<div class="inp-row ${sec.full?'full-width':''}">
-          <div class="inp-label">${f.label}</div>
-          <select onchange="setInp('${f.key}',this.value)">
+          <div class="inp-label">${f.label}${isAutoSel?'<span class="auto-badge">↻ live</span>':''}</div>
+          <select onchange="setInp('${f.key}',this.value)" style="${isAutoSel?'border-color:rgba(29,158,117,0.5);':''}">
             ${f.options.map(o=>`<option value="${o.v}" ${inp[f.key]===o.v?'selected':''}>${o.l}</option>`).join('')}
           </select>
-          <div class="inp-hint">${f.hint||''}</div>
+          <div class="inp-hint">${isAutoSel?'<span style="color:var(--green);font-weight:500;">↻ Auto-fetched</span> — ':''} ${f.hint||''}</div>
         </div>`;
       } else {
+        const isAuto=autoFilled.has(f.key);
         html+=`<div class="inp-row ${sec.full?'full-width':''}">
-          <div class="inp-label">${f.label}</div>
-          <input type="number" value="${inp[f.key]}" placeholder="${f.placeholder||''}" onchange="setInp('${f.key}',parseFloat(this.value)||0)">
-          <div class="inp-hint"><span class="where">Where to find it:</span> ${f.hint||''}</div>
+          <div class="inp-label">${f.label}${isAuto?'<span class="auto-badge">↻ live</span>':''}</div>
+          <input type="number" value="${inp[f.key]}" placeholder="${f.placeholder||''}" onchange="setInp('${f.key}',parseFloat(this.value)||0)" style="${isAuto?'border-color:rgba(29,158,117,0.5);background:rgba(29,158,117,0.04);':''}">
+          <div class="inp-hint">${isAuto?'<span style="color:var(--green);font-weight:500;">↻ Auto-fetched</span> — verify then adjust if needed. ':'<span class="where">Where to find it:</span> '}${f.hint||''}</div>
         </div>`;
       }
     }
