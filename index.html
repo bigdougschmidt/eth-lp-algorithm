@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETH LP Decision Algorithm v3.1</title>
+<style>
+:root {
+  --bg:#0f1117;--bg2:#161b27;--bg3:#1c2333;--bg4:#222840;
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
+  --text:#e8eaf0;--text2:#9aa3b8;--text3:#6b7590;
+  --green:#1D9E75;--green-bg:rgba(29,158,117,0.12);--green-border:rgba(29,158,117,0.35);
+  --blue:#3b8be0;--blue-bg:rgba(59,139,224,0.10);
+  --red:#e05252;--red-bg:rgba(224,82,82,0.10);--red-border:rgba(224,82,82,0.3);
+  --amber:#c9882a;--amber-bg:rgba(201,136,42,0.10);--amber-border:rgba(201,136,42,0.30);
+  --purple:#8b7fd4;--purple-bg:rgba(139,127,212,0.10);
+  --gray:#888ea8;
+  --radius:10px;--radius-sm:6px;
+  --mono:'JetBrains Mono','Fira Mono','Consolas',monospace;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.6;min-height:100vh}
+.app{max-width:1100px;margin:0 auto;padding:0 20px 60px}
+
+/* Header */
+.header{padding:28px 0 20px;border-bottom:0.5px solid var(--border);margin-bottom:24px;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.header-badge{font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:6px}
+.header h1{font-size:24px;font-weight:600;letter-spacing:-0.02em}
+.header p{font-size:13px;color:var(--text2);margin-top:4px}
+.vtag{background:var(--green-bg);border:0.5px solid var(--green-border);color:var(--green);font-size:11px;font-family:var(--mono);padding:3px 10px;border-radius:20px;white-space:nowrap;align-self:flex-start;margin-top:4px}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;margin-bottom:24px;background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius);padding:4px;flex-wrap:wrap}
+.tab{padding:7px 16px;font-size:13px;font-weight:500;cursor:pointer;border-radius:var(--radius-sm);border:none;background:transparent;color:var(--text2);transition:all 0.15s}
+.tab:hover{color:var(--text);background:rgba(255,255,255,0.05)}
+.tab.active{background:var(--bg3);color:var(--text);border:0.5px solid var(--border2)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+
+/* Cards */
+.card{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:14px}
+.card-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+
+/* Grids */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+.g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+@media(max-width:700px){.g3,.g4{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+/* Metrics */
+.metric{background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px}
+.metric.green{background:var(--green-bg);border-color:var(--green-border)}
+.metric.amber{background:var(--amber-bg);border-color:var(--amber-border)}
+.metric.red{background:var(--red-bg);border-color:var(--red-border)}
+.metric.blue{background:var(--blue-bg);border-color:rgba(59,139,224,0.3)}
+.mlbl{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);font-weight:500;margin-bottom:5px}
+.mval{font-family:var(--mono);font-size:20px;font-weight:600}
+.msub{font-size:11px;color:var(--text3);margin-top:3px}
+
+/* Signal */
+.signal-banner{border-radius:var(--radius);padding:18px 20px;margin-bottom:14px;border:0.5px solid;display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap}
+.signal-text{font-family:var(--mono);font-size:20px;font-weight:700;margin-bottom:6px}
+.signal-note{font-size:13px;color:var(--text2);line-height:1.55}
+
+/* Code */
+.code{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;font-family:var(--mono);font-size:12px;color:var(--text2);line-height:1.8;margin:8px 0}
+
+/* Progress bars */
+.pbar-wrap{height:5px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;margin-top:6px}
+.pbar{height:100%;border-radius:3px;transition:width 0.4s}
+
+/* Band visual */
+.band-bar{position:relative;height:28px;background:var(--bg3);border:0.5px solid var(--border);border-radius:8px;overflow:hidden;margin:8px 0 4px}
+.band-legend{display:flex;gap:14px;flex-wrap:wrap}
+.band-legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3);font-family:var(--mono)}
+.band-legend-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+
+/* Corridor */
+.corridor-bar{position:relative;height:20px;background:var(--bg3);border:0.5px solid var(--border);border-radius:6px;overflow:hidden;margin:8px 0 4px}
+
+/* Tables */
+table{width:100%;border-collapse:collapse}
+th{padding:8px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);border-bottom:0.5px solid var(--border2)}
+td{padding:9px 12px;font-size:13px;font-family:var(--mono);border-bottom:0.5px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr.active-row{background:rgba(29,158,117,0.06)}
+
+/* Fee cards */
+.fee-card{border-radius:var(--radius-sm);padding:14px 16px;border:0.5px solid var(--border);background:var(--bg3)}
+.fee-card.active{border-color:var(--green-border);background:var(--green-bg)}
+.fee-tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--green);margin-bottom:6px}
+
+/* Scenario cards */
+.scenario{border-radius:var(--radius);padding:16px 18px;border:0.5px solid}
+.scenario.green{border-color:var(--green-border);background:var(--green-bg)}
+.scenario.amber{border-color:var(--amber-border);background:var(--amber-bg)}
+
+/* Footer */
+.footer{margin-top:40px;padding-top:20px;border-top:0.5px solid var(--border);font-size:12px;color:var(--text3);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+
+/* Pill */
+.pill{display:inline-block;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em}
+.pill-green{background:var(--green-bg);color:var(--green);border:0.5px solid var(--green-border)}
+.pill-amber{background:var(--amber-bg);color:var(--amber)}
+.pill-red{background:var(--red-bg);color:var(--red)}
+
+/* Info note */
+.info-note{background:var(--blue-bg);border:0.5px solid rgba(59,139,224,0.25);border-radius:var(--radius-sm);padding:10px 14px;font-size:12px;color:var(--text2);line-height:1.6;margin-top:10px}
+
+/* ── INFO BUTTON + POPUP ── */
+.info-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(59,139,224,0.15);border:0.5px solid rgba(59,139,224,0.4);color:var(--blue);font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;position:relative;user-select:none;transition:background 0.15s}
+.info-btn:hover{background:rgba(59,139,224,0.3)}
+.popup-overlay{display:none;position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;padding:20px}
+.popup-overlay.open{display:flex}
+.popup{background:var(--bg2);border:0.5px solid var(--border2);border-radius:var(--radius);padding:24px 26px;max-width:520px;width:100%;position:relative;max-height:80vh;overflow-y:auto}
+.popup h3{font-size:15px;font-weight:600;margin-bottom:12px;color:var(--text)}
+.popup-body{font-size:13px;color:var(--text2);line-height:1.75}
+.popup-body strong{color:var(--text)}
+.popup-body .ex{background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-family:var(--mono);font-size:12px;margin:8px 0;color:var(--text2)}
+.popup-close{position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;line-height:1}
+.popup-close:hover{color:var(--text)}
+
+/* ── INPUT SECTIONS ── */
+.inp-section{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius);margin-bottom:14px;overflow:hidden}
+.inp-section-header{display:flex;align-items:center;gap:10px;padding:14px 18px 14px;border-bottom:0.5px solid var(--border);background:var(--bg3)}
+.inp-section-num{font-family:var(--mono);font-size:11px;color:var(--text3);background:var(--bg4);border:0.5px solid var(--border2);border-radius:4px;padding:1px 7px;font-weight:600}
+.inp-section-title{font-size:13px;font-weight:600;color:var(--text);flex:1}
+.inp-section-source{font-size:11px;color:var(--text3);font-style:italic}
+.inp-fields{padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:600px){.inp-fields{grid-template-columns:1fr}}
+.inp-row{}
+.inp-label{font-size:12px;color:var(--text2);margin-bottom:3px;font-weight:500;display:flex;align-items:center;gap:5px}
+.inp-hint{font-size:11px;color:var(--text3);margin-top:3px;line-height:1.5}
+.inp-hint .where{color:var(--amber);font-weight:500}
+input[type=number],select{width:100%;background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--radius-sm);padding:8px 10px;font-size:13px;font-family:var(--mono);color:var(--text);outline:none;transition:border-color 0.15s;-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+input[type=number]:focus,select:focus{border-color:var(--green)}
+select option{background:var(--bg3)}
+.check-row{display:flex;align-items:center;gap:8px;margin-top:4px}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);cursor:pointer;flex-shrink:0}
+.check-lbl{font-size:13px;color:var(--text2);cursor:pointer}
+.full-width{grid-column:1/-1}
+
+/* Glossary */
+.gloss-search{width:100%;background:var(--bg2);border:0.5px solid var(--border2);border-radius:var(--radius-sm);padding:10px 14px;font-size:14px;color:var(--text);outline:none;margin-bottom:16px;font-family:var(--sans)}
+.gloss-search:focus{border-color:var(--green)}
+.gloss-letter{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;padding:8px 0 4px;border-bottom:0.5px solid var(--border);margin-bottom:8px;margin-top:16px}
+.gloss-term{padding:10px 0;border-bottom:0.5px solid var(--border)}
+.gloss-term:last-child{border-bottom:none}
+.gloss-word{font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px}
+.gloss-def{font-size:13px;color:var(--text2);line-height:1.6}
+.gloss-def .eg{font-style:italic;color:var(--text3)}
+
+/* Steps in guide */
+.step-box{background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:10px}
+.step-header{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+.step-num{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--amber);min-width:28px}
+.step-title{font-size:13px;font-weight:600;color:var(--text)}
+.step-body{font-size:12px;color:var(--text2);line-height:1.75;padding-left:38px}
+.step-body code{background:var(--bg);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:11px}
+.step-body a{color:var(--blue);text-decoration:none}
+.step-body a:hover{text-decoration:underline}
+.checklist-item{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:8px}
+.check-icon{font-size:18px;font-weight:700;line-height:1;margin-top:1px}
+
+/* Reset button */
+.reset-btn{background:var(--bg3);border:0.5px solid var(--border2);color:var(--text2);padding:6px 14px;border-radius:var(--radius-sm);font-size:12px;cursor:pointer;transition:all 0.15s}
+.reset-btn:hover{border-color:var(--red-border);color:var(--red)}
+
+/* Section accent colors */
+.acc-green{border-left:3px solid var(--green)}
+.acc-red{border-left:3px solid var(--red)}
+.acc-blue{border-left:3px solid var(--blue)}
+.acc-amber{border-left:3px solid var(--amber)}
+.acc-purple{border-left:3px solid var(--purple)}
+.acc-gray{border-left:3px solid var(--gray)}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <div class="header-badge">Ten4Reserve · Cattell Street Partners</div>
+    <h1>ETH LP Decision Algorithm</h1>
+    <p>Concentrated liquidity positioning for ETH/USDC · Based on Matt Burks' system · March 2026</p>
+  </div>
+  <div class="vtag">v3.2</div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('output',this)">📊 Decision Output</button>
+  <button class="tab" onclick="switchTab('inputs',this)">✏️ Market Inputs</button>
+  <button class="tab" onclick="switchTab('returns',this)">💰 Return Model</button>
+  <button class="tab" onclick="switchTab('guide',this)">📋 How to Use</button>
+  <button class="tab" onclick="switchTab('glossary',this)">📖 Glossary</button>
+</div>
+
+<!-- Output Tab -->
+<div id="tab-output" class="tab-content active"></div>
+
+<!-- Inputs Tab -->
+<div id="tab-inputs" class="tab-content">
+  <div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Enter today's market data below</div>
+        <div style="font-size:12px;color:var(--text2);">Each section shows exactly <span style="color:var(--amber);font-weight:500;">where to find the number</span> and what it means. Your inputs save automatically. Start with Section 1 and work down.</div>
+      </div>
+      <button class="reset-btn" onclick="resetInputs()">↺ Reset to defaults</button>
+    </div>
+  </div>
+  <div id="inputs-content"></div>
+</div>
+
+<!-- Returns Tab -->
+<div id="tab-returns" class="tab-content"></div>
+
+<!-- Guide Tab -->
+<div id="tab-guide" class="tab-content">
+
+  <div class="card acc-purple" style="background:var(--purple-bg);">
+    <div class="card-title" style="color:var(--purple);">Before Your First Trade — One-Time Setup</div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">1.</span><span class="step-title">Open a tastytrade account (for hedging)</span></div>
+      <div class="step-body">Go to <a href="https://tastytrade.com" target="_blank">tastytrade.com</a> → open individual brokerage account → enable futures trading. Fund with <strong>$15,000–$20,000</strong> as margin buffer for hedging $100K. You'll use this to sell CME micro-ETH futures contracts (each = 0.1 ETH) to protect against price drops.</div>
+    </div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">2.</span><span class="step-title">Set up MetaMask wallet (to connect to Uniswap)</span></div>
+      <div class="step-body">Go to <a href="https://metamask.io" target="_blank">metamask.io</a> → install browser extension → create new wallet → <strong>write your seed phrase on paper and store it offline</strong> (never digitally). Fund with USDC from Coinbase or your exchange. This wallet connects directly to Uniswap where you'll mint LP positions.</div>
+    </div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">3.</span><span class="step-title">Create a free TradingView account</span></div>
+      <div class="step-body">Go to <a href="https://tradingview.com" target="_blank">tradingview.com</a> → sign up free → open a new chart → search <code>ETHUSD</code>.<br><br>
+      Add two indicators by clicking the <strong>Indicators</strong> button at the top:<br>
+      • Search <code>VWAP</code> → add it → you'll see a moving line on your chart<br>
+      • Search <code>ATR</code> → add Average True Range → set length to <code>14</code>, set the chart timeframe to <code>1H</code><br><br>
+      Free tier gives you 3 price alerts — you need 1 per open position (set at your lower band price).</div>
+    </div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">4.</span><span class="step-title">Bookmark these 4 URLs — you'll open them every session</span></div>
+      <div class="step-body">
+        <strong>A. TradingView chart</strong> — <code>tradingview.com/chart</code> (ETH 1h with VWAP + ATR-14)<br>
+        <strong>B. Coinglass liquidation heatmap</strong> — <code>coinglass.com/pro/futures/LiquidationHeatMap</code><br>
+        <strong>C. Uniswap V3 ETH/USDC 0.05% pool</strong> — <code>app.uniswap.org/explore/pools/ethereum/0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640</code><br>
+        <strong>D. Uniswap Analytics pool stats</strong> — <code>info.uniswap.org/pools/0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="card acc-amber" style="background:var(--amber-bg);">
+    <div class="card-title" style="color:var(--amber);">Every Session — Pull These 9 Numbers First (5–10 min)</div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">① ②</span><span class="step-title">Spot Price + VWAP → from TradingView</span></div>
+      <div class="step-body">Open your TradingView ETH 1H chart. The price shown in the top-left corner is your <strong>Spot Price</strong>. The VWAP line currently on your chart — hover over it to see its exact value — is your <strong>VWAP</strong>.<br>Enter both in <strong>Market Inputs → Section 1 (Price & VWAP)</strong>.</div>
+    </div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">③</span><span class="step-title">LP Midpoint → from Uniswap tick chart</span></div>
+      <div class="step-body">Open bookmark C (Uniswap pool page). Scroll down to the bar chart showing where LP capital is concentrated. Find the price with the <strong>tallest bar</strong> — that's where most LP liquidity sits. Enter that price.<br>If unclear, use the current pool price shown at the top of the page as an approximation.<br>Enter in <strong>Market Inputs → Section 1, third field</strong>.</div>
+    </div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">④</span><span class="step-title">ATR-14 → from TradingView (in dollars)</span></div>
+      <div class="step-body">Look at the bottom panel of your TradingView chart — the ATR indicator shows a number like <code>35.42</code>. This means ETH moves ~$35 per hour on average. Enter that dollar value (not a percentage).<br>Enter in <strong>Market Inputs → Section 5 (Volatility)</strong>. Typical range: $15–$60.</div>
+    </div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">⑤ ⑥ ⑦ ⑧ ⑨</span><span class="step-title">Liquidation Zones → from Coinglass</span></div>
+      <div class="step-body">Open bookmark B (Coinglass Liquidation Heatmap). Select <strong>ETH</strong> and set view to <strong>12h or 24h</strong>. You'll see a heatmap with colored clusters.<br><br>
+      • The <strong>3 brightest clusters BELOW current price</strong> = Long Liquidation Zones (enter in Section 2)<br>
+      • The <strong>3 brightest clusters ABOVE current price</strong> = Short Liquidation Zones (enter in Section 3)<br><br>
+      Read the price level from the left axis for each cluster. Enter nearest cluster first.</div>
+    </div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">+</span><span class="step-title">Pool Data → from Uniswap Analytics (once per session)</span></div>
+      <div class="step-body">Open bookmark D (Uniswap Analytics). Find the ETH/USDC 0.05% and 0.30% pool rows. For each, note:<br>
+      • <strong>TVL</strong>: e.g. "$20.4M" → enter <code>20.4</code> (in millions)<br>
+      • <strong>24h Fees</strong>: e.g. "$2,700" → enter <code>2700</code> (in dollars)<br>
+      • <strong>APR</strong>: e.g. "45%" → enter <code>45</code>. If not shown: (24h fees ÷ TVL) × 365 × 100<br>
+      Enter in <strong>Market Inputs → Section 8 (Pool Data)</strong>.</div>
+    </div>
+  </div>
+
+  <div class="card acc-green" style="background:var(--green-bg);">
+    <div class="card-title" style="color:var(--green);">Go / No-Go Checklist — Check Decision Output Before Trading</div>
+    <div class="checklist-item"><div class="check-icon" style="color:var(--green);">✓</div><div><div style="font-size:12px;font-weight:600;margin-bottom:3px;">Signal banner says ENTER or ENTER (BREAKOUT CONFIRMED)</div><div style="font-size:12px;color:var(--text2);">If it says WAIT, SIT OUT, or DANGER ZONE — stop. Do not trade. Conditions must improve first.</div></div></div>
+    <div class="checklist-item"><div class="check-icon" style="color:var(--green);">✓</div><div><div style="font-size:12px;font-weight:600;margin-bottom:3px;">Corridor position is under 80% — labeled green or amber</div><div style="font-size:12px;color:var(--text2);">Red (>80%) means you're near the top of the liquidity corridor — the real danger zone. Minting here traps your band too high. Wait for price to pull back to mid-corridor.</div></div></div>
+    <div class="checklist-item"><div class="check-icon" style="color:var(--green);">✓</div><div><div style="font-size:12px;font-weight:600;margin-bottom:3px;">Mint Gate shows under $25 (ideally under $10)</div><div style="font-size:12px;color:var(--text2);">This is the gap between Spot and VWAP. Under $10 = ideal, price is at equilibrium. $10–$25 = acceptable but stretched. Over $25 = wait for price to revert to VWAP.</div></div></div>
+    <div class="checklist-item"><div class="check-icon" style="color:var(--green);">✓</div><div><div style="font-size:12px;font-weight:600;margin-bottom:3px;">Note your scenario — Scenario 1 (Breakout) or Scenario 2 (Pullback)</div><div style="font-size:12px;color:var(--text2);">The entry scenario cards show the exact band, entry price, and fee tier to use. This is your trading plan for the cycle.</div></div></div>
+  </div>
+
+  <div class="card acc-blue" style="background:var(--blue-bg);">
+    <div class="card-title" style="color:var(--blue);">Execution — Step by Step Once You Have a Green Signal</div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">A.</span><span class="step-title">Buy ETH in the Swap Zone (not at spot)</span></div>
+      <div class="step-body">The algorithm shows a <strong>Swap Zone</strong> (e.g. "$2,298–$2,305"). This is where to buy ETH with USDC — not at current spot price. Go to <code>app.uniswap.org → Swap</code>. Select USDC → ETH. For a $100K position, swap ~$50K worth. Use a limit order if price is above the zone, or execute at market if already in zone.<br><br><strong style="color:var(--amber);">Never swap at the top of a round-number breakout</strong> — e.g. if ETH just broke $2,400, don't swap at $2,400. Wait for it to dip to the swap zone.</div>
+    </div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">B.</span><span class="step-title">Mint your LP position on Uniswap</span></div>
+      <div class="step-body">Go to <code>app.uniswap.org → Pool → New Position</code>. Select <strong>ETH / USDC</strong> pair → choose the fee tier shown in the algorithm (0.05% for range market, 0.30% for trend market).<br><br>
+      Set <strong>Min Price</strong> = Lower Band from the algorithm.<br>
+      Set <strong>Max Price</strong> = Upper Band from the algorithm.<br><br>
+      Enter the ETH and USDC amounts — Uniswap calculates the ratio automatically. Click <strong>Preview → Add → confirm in MetaMask</strong>. Gas fee ~$2–4.</div>
+    </div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">C.</span><span class="step-title">Set your TradingView alert immediately after minting</span></div>
+      <div class="step-body">On TradingView: right-click at the <strong>Lower Band price</strong> on your chart → <strong>Add Alert</strong> → set condition to "price crosses down through [your lower band]". Enable email + phone push notifications.<br>This is your hedge trigger. When it fires you have ~60 seconds to execute your futures hedge.</div>
+    </div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">D.</span><span class="step-title">Pre-stage your hedge on tastytrade (don't submit yet)</span></div>
+      <div class="step-body">Open tastytrade → search micro-ETH futures → open a <strong>SELL</strong> order ticket. The algorithm shows your hedge % and the exact number of contracts. Fill in the quantity but <strong>do not submit</strong> — just have it staged and ready.<br>When your TradingView alert fires → switch to tastytrade → hit Review → Send. Done in under 30 seconds.</div>
+    </div>
+    <div class="step-box">
+      <div class="step-header"><span class="step-num">E.</span><span class="step-title">Monitor and close when out of range or fee target hit</span></div>
+      <div class="step-body">
+      <strong>If ETH runs above Upper Band:</strong> you've sold all ETH into USDC. Go to Uniswap → Pool → your position → Remove Liquidity 100%. Collect fees + USDC. Re-evaluate and re-enter.<br><br>
+      <strong>If lower band alert fires:</strong> execute your pre-staged hedge on tastytrade first. Then decide: if further drop looks likely, remove LP too. If it bounces, your hedge captured the downside.<br><br>
+      <strong>Target:</strong> 6 cycles/day at 0.125% per cycle = 75 bps/day gross. Don't force 6 if conditions don't warrant it. "Any day you book a profit is a good day — don't get greedy." — Matt</div>
+    </div>
+  </div>
+
+  <div class="card acc-gray">
+    <div class="card-title">Accounts You Need — All Free to Open</div>
+    <table>
+      <thead><tr><th>Platform</th><th>Used For</th><th>URL</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td>TradingView</td><td>Spot, VWAP, ATR-14, alerts</td><td>tradingview.com</td><td>Free (3 alerts)</td></tr>
+        <tr><td>Coinglass</td><td>Liquidation heatmap — liq zone inputs</td><td>coinglass.com</td><td>Free</td></tr>
+        <tr><td>Uniswap App</td><td>LP minting + token swaps</td><td>app.uniswap.org</td><td>Gas ~$2–4/tx</td></tr>
+        <tr><td>Uniswap Analytics</td><td>24h fees, TVL, APR by tier</td><td>info.uniswap.org</td><td>Free</td></tr>
+        <tr><td>tastytrade</td><td>CME micro-ETH futures hedging</td><td>tastytrade.com</td><td>Free account</td></tr>
+        <tr><td>MetaMask</td><td>Hot wallet → connects to Uniswap</td><td>metamask.io</td><td>Free</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<!-- Glossary Tab -->
+<div id="tab-glossary" class="tab-content">
+  <div class="card">
+    <div class="card-title">Glossary of Terms</div>
+    <input class="gloss-search" type="text" placeholder="Search terms..." oninput="filterGlossary(this.value)" id="gloss-search">
+    <div id="gloss-body"></div>
+  </div>
+</div>
+
+<!-- Info Popup -->
+<div class="popup-overlay" id="popup-overlay" onclick="closePopup(event)">
+  <div class="popup" id="popup-box">
+    <button class="popup-close" onclick="closePopupDirect()">✕</button>
+    <h3 id="popup-title"></h3>
+    <div class="popup-body" id="popup-body"></div>
+  </div>
+</div>
+
+<div class="footer">
+  <span>ETH LP Decision Algorithm v3.1 · Matt Burks / Ten4Reserve · March 2026</span>
+  <span>Not financial advice. Understand the algorithm before running it live.</span>
+</div>
+</div>
+
+<script>
+// ─── DEFAULTS ────────────────────────────────────────────────────────────────
+const DEFAULT = {
+  spot:2336,vwap:2310,lpMid:2295,
+  longLiq1:2070,longLiq2:2050,longLiq3:2025,
+  shortLiq1:2380,shortLiq2:2360,shortLiq3:2340,
+  prevHigh:2300,prevLow:2245,
+  atr1h:35,realVol:1.6,volRatio:1.2,
+  rsi:55,macdBull:true,emaBull:true,priceAccel:'positive',
+  fundingRate:0.008,oiTrend:'rising',lsRatio:0.58,
+  macroRisk:'none',bullBias:true,
+  capital:100000,
+  poolAPR_05:45,poolAPR_30:28.6,
+  poolTVL_05:20,poolTVL_30:31.9,
+  poolFees24h_05:2700,poolFees24h_30:25000,
+  cyclesPerDay:6,feePerCycle:0.125,
+  breakoutHeld:false
+};
+let inp = {...DEFAULT};
+try{const s=localStorage.getItem('lp_v31');if(s)inp={...DEFAULT,...JSON.parse(s)};}catch(e){}
+function save(){try{localStorage.setItem('lp_v31',JSON.stringify(inp));}catch(e){}}
+
+// ─── ALGORITHM ───────────────────────────────────────────────────────────────
+function runAlgo(p){
+  const liqMid=((p.longLiq1+p.longLiq2+p.longLiq3)/3+(p.shortLiq1+p.shortLiq2+p.shortLiq3)/3)/2;
+  const fv=Math.round(p.vwap*0.40+p.spot*0.35+p.lpMid*0.15+liqMid*0.10);
+  const szH=Math.round(p.vwap-5),szL=Math.round(p.vwap-12);
+  let hw=0.65*p.atr1h,mm=1.0;
+  if(p.macroRisk==='high')mm=1.6;else if(p.macroRisk==='elevated')mm=1.2;
+  hw*=mm;
+  let regime='range';
+  if(p.atr1h>40||p.volRatio>1.35)regime='trend';
+  else if(p.atr1h>25||p.volRatio>1.2)regime='transitional';
+  if(regime==='trend')hw*=1.15;
+  const tier=regime==='trend'?'0.30%':'0.05%';
+  const apr=regime==='trend'?p.poolAPR_30:p.poolAPR_05;
+  const tvl=regime==='trend'?p.poolTVL_30:p.poolTVL_05;
+  const f24=regime==='trend'?p.poolFees24h_30:p.poolFees24h_05;
+  const f24i=regime==='trend'?p.poolFees24h_05:p.poolFees24h_30;
+  const frat=+(f24/f24i).toFixed(1);
+  const tM=p.bullBias?1.30:1.0,bM=p.bullBias?0.75:1.0;
+  const upper=Math.round(fv+hw*tM),lower=Math.round(fv-hw*bM);
+  const tw=upper-lower,bwp=+(tw/fv*100).toFixed(2);
+  const cT=Math.min(p.shortLiq1,p.shortLiq2,p.shortLiq3);
+  const cB=Math.max(p.longLiq1,p.longLiq2,p.longLiq3);
+  const cM=Math.round((cT+cB)/2);
+  const cr=cT-cB;
+  const cPct=Math.round(Math.max(0,Math.min(100,cr>0?(p.spot-cB)/cr*100:50)));
+  let cLbl,cCol,cNote;
+  if(cPct>80){cLbl='DANGER — upper corridor edge';cCol='#e05252';cNote='Real danger zone. Minting here traps your band too high. Wait for price to pull back toward mid-corridor ($'+cM+').';}
+  else if(cPct>55){cLbl='Upper-mid corridor — acceptable';cCol='#c9882a';cNote='Above midpoint but manageable. Mid-corridor at $'+cM+' is a better center if you can wait.';}
+  else if(cPct<20){cLbl='Near lower edge';cCol='#c9882a';cNote='Near long liquidation cluster. Bounce likely but IL risk if price breaks lower.';}
+  else{cLbl='Mid-corridor — ideal zone';cCol='#1D9E75';cNote='Best zone to mint. Not at extremes. Fees maximized, IL minimized.';}
+  const vd=Math.abs(p.spot-p.vwap);
+  const rnd=[2000,2100,2200,2300,2400,2500,2600,2700,2800,2900,3000];
+  const nrnd=rnd.some(r=>Math.abs(p.spot-r)<15);
+  const rtrap=nrnd&&!p.breakoutHeld;
+  const s1=p.breakoutHeld?p.prevHigh:p.prevLow;
+  const s2=p.breakoutHeld?Math.round(p.prevHigh-30):Math.round(p.prevLow-25);
+  const r1=p.breakoutHeld?Math.round(p.prevHigh+35):p.prevHigh;
+  const r2=p.breakoutHeld?Math.round(p.prevHigh+60):Math.round(p.prevHigh+25);
+  const r3=p.breakoutHeld?Math.round(p.prevHigh+100):Math.round(p.prevHigh+60);
+  const bkE=Math.round(p.shortLiq1),bkL=Math.round(p.shortLiq1-35),bkH=Math.round(p.shortLiq1+40);
+  const pbL=Math.round(szL-10),pbH=Math.round(szL+5);
+  let pR=65,pBu=22,pBe=13;
+  if(p.fundingRate>0.01){pBu+=5;pBe-=2;}else if(p.fundingRate<-0.005){pBe+=7;pBu-=4;}
+  if(p.oiTrend==='rising'){pBu+=4;pBe-=2;}else if(p.oiTrend==='falling'){pBe+=5;pBu-=3;}
+  if(p.lsRatio>0.68){pBe+=5;pR-=3;}else if(p.lsRatio<0.45){pBu+=4;pR-=2;}
+  if(p.macdBull)pBu+=3;if(p.emaBull)pBu+=2;
+  if(p.priceAccel==='positive')pBu+=2;else if(p.priceAccel==='negative')pBe+=3;
+  if(p.rsi>70){pBe+=5;pR-=3;}else if(p.rsi<35)pBu+=4;
+  if(p.breakoutHeld){pBu+=8;pR-=4;}
+  const tot=pR+pBu+pBe;
+  const fR=Math.round(pR/tot*100),fBu=Math.round(pBu/tot*100),fBe=100-Math.round(pR/tot*100)-Math.round(pBu/tot*100);
+  let hedge=62;
+  if(p.fundingRate<-0.005)hedge+=8;if(fBe>18)hedge+=5;
+  if(regime==='trend'&&p.bullBias)hedge-=8;if(p.breakoutHeld)hedge-=5;
+  hedge=Math.min(80,Math.max(50,Math.round(hedge)));
+  const rr=upper/lower;
+  const il=+((2*Math.sqrt(rr)/(1+rr)-1)*100).toFixed(3);
+  const dr=apr/100/365,ut=fR/100;
+  const pBPS=+(dr*ut*10000).toFixed(1),pDay=Math.round(p.capital*dr*ut);
+  const aRate=p.cyclesPerDay*p.feePerCycle/100;
+  const aBPS=Math.round(aRate*10000),aDay=Math.round(p.capital*aRate);
+  const aMo=Math.round(aDay*30),aYr=Math.round(aDay*365);
+  const pp=+(p.capital/1e6/tvl*100).toFixed(1);
+  const ethAmt=+(p.capital/2/p.spot).toFixed(2);
+  const hContracts=Math.round(ethAmt*hedge/100/0.1);
+  let sig,sc,sn;
+  if(p.macroRisk==='high'){sig='SIT OUT';sc='#e05252';sn='Macro risk HIGH — bandwidth ×1.6. Sit out or use very wide band only.';}
+  else if(rtrap){sig='WAIT — ROUND NUMBER TRAP';sc='#e05252';sn='Price at round-number resistance. Shorts liquidating → brief overshoot → VWAP reversion. Wait for Scenario 1 (hold 20–30 min) or Scenario 2 (pullback to VWAP zone).';}
+  else if(cPct>80){sig='WAIT — DANGER ZONE';sc='#e05252';sn='At upper corridor edge. Real danger: minting here traps band too high. Target mid-corridor at $'+cM+'.';}
+  else if(p.breakoutHeld&&vd<40){sig='ENTER (BREAKOUT CONFIRMED)';sc='#1D9E75';sn='Breakout held 20–30+ min — trend is real. Enter ~$'+bkE+', band $'+bkL+'–$'+bkH+'. Use 0.30% fee tier.';}
+  else if(vd<10&&cPct<=80){sig='ENTER';sc='#1D9E75';sn='|Spot−VWAP| = $'+Math.round(vd)+' — VWAP equilibrium. Mid-corridor position. Swap ETH in $'+szL+'–$'+szH+', then mint.';}
+  else if(vd>=10&&vd<25){sig='WAIT — PULLBACK ZONE';sc='#c9882a';sn='Deviation $'+Math.round(vd)+'. Better entry if ETH dips to $'+pbL+'–$'+pbH+' (breakout retest + VWAP = lower IL risk).';}
+  else{sig='WAIT';sc='#888ea8';sn='Conditions not met. Target swap zone: $'+szL+'–$'+szH+'.';}
+  return{fv,liqMid:Math.round(liqMid),hw:Math.round(hw),upper,lower,tw,bwp,tier,regime,mm,apr,tvl,pp,f24,f24i,frat,szL,szH,cLbl,cCol,cNote,cPct,cM,cT,cB,s1,s2,r1,r2,r3,bkE,bkL,bkH,pbL,pbH,vd:Math.round(vd),rtrap,fR,fBu,fBe,hedge,il,pBPS,pDay,aBPS,aDay,aMo,aYr,pp,ethAmt,hContracts,sig,sc,sn};
+}
+
+const fmt=n=>typeof n==='number'?n.toLocaleString():n;
+const pct=(v,lo,hi)=>Math.max(2,Math.min(97,(v-lo)/(hi-lo)*100));
+
+// ─── RENDER OUTPUT ────────────────────────────────────────────────────────────
+function renderOutput(){
+  const r=runAlgo(inp);
+  const el=document.getElementById('tab-output');
+  const rc=r.regime==='trend'?'var(--green)':r.regime==='range'?'var(--blue)':'var(--amber)';
+  const lo=r.lower,hi=r.upper;
+  const spX=pct(inp.spot,lo,hi),vpX=pct(inp.vwap,lo,hi),fvX=pct(r.fv,lo,hi);
+  const szLX=pct(r.szL,lo,hi),szHX=pct(r.szH,lo,hi);
+  const aT=r.tier==='0.30%';
+  el.innerHTML=`
+  <div class="signal-banner" style="background:${r.sc}18;border-color:${r.sc}55;border-left:3px solid ${r.sc};">
+    <div><div class="signal-text" style="color:${r.sc};">${r.sig}</div><div class="signal-note">${r.sn}</div></div>
+    <div style="text-align:right;flex-shrink:0;">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:3px;">Market Regime</div>
+      <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:${rc};">${r.regime.toUpperCase()} → ${r.tier}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">Pool APR: ${r.apr}% · BandWidth: $${r.tw}</div>
+    </div>
+  </div>
+
+  <div class="card" style="border-left:3px solid ${r.cCol};background:${r.cCol}14;">
+    <div class="card-title">Mid-Liquidity Corridor Position <button class="info-btn" onclick="showInfo('corridor')">i</button></div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:10px;">
+      <div><div style="font-size:13px;font-weight:600;color:${r.cCol};margin-bottom:3px;">${r.cLbl}</div><div style="font-size:12px;color:var(--text2);">${r.cNote}</div></div>
+      <div style="text-align:right;flex-shrink:0;"><div style="font-family:var(--mono);font-size:28px;font-weight:700;color:${r.cCol};">${r.cPct}%</div><div style="font-size:11px;color:var(--text3);">through corridor</div></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--mono);margin-bottom:3px;"><span>$${fmt(r.cB)} long liq</span><span style="color:${r.cCol};">spot $${fmt(inp.spot)} (${r.cPct}%)</span><span>$${fmt(r.cT)} short liq</span></div>
+    <div class="corridor-bar">
+      <div style="position:absolute;left:0;top:0;bottom:0;width:20%;background:rgba(224,82,82,0.2);"></div>
+      <div style="position:absolute;right:0;top:0;bottom:0;width:20%;background:rgba(224,82,82,0.25);"></div>
+      <div style="position:absolute;left:20%;top:0;bottom:0;width:60%;background:rgba(29,158,117,0.08);"></div>
+      <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(29,158,117,0.35);"></div>
+      <div style="position:absolute;left:${r.cPct}%;top:0;bottom:0;width:3px;background:${r.cCol};transform:translateX(-1px);border-radius:2px;"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;margin-top:3px;"><span style="color:var(--red);">⚠ Danger zone</span><span style="color:var(--green);">← Ideal minting zone →</span><span style="color:var(--red);">⚠ Danger zone</span></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Fee Tier Comparison — 24h Pool Data <button class="info-btn" onclick="showInfo('feeTier')">i</button></div>
+    <div class="g2" style="margin-bottom:10px;">
+      <div class="fee-card ${!aT?'active':''}">
+        ${!aT?'<div class="fee-tag">← Active for range regime</div>':''}
+        <div class="mlbl">0.05% Pool — 24h Fees</div>
+        <div style="font-family:var(--mono);font-size:20px;font-weight:600;color:${!aT?'var(--green)':'var(--gray)'};">$${fmt(inp.poolFees24h_05)}</div>
+        <div class="msub">TVL $${inp.poolTVL_05}M · APR ${inp.poolAPR_05}%</div>
+      </div>
+      <div class="fee-card ${aT?'active':''}">
+        ${aT?'<div class="fee-tag">← Active for trend regime</div>':''}
+        <div class="mlbl">0.30% Pool — 24h Fees</div>
+        <div style="font-family:var(--mono);font-size:20px;font-weight:600;color:${aT?'var(--green)':'var(--gray)'};">$${fmt(inp.poolFees24h_30)}</div>
+        <div class="msub">TVL $${inp.poolTVL_30}M · APR ${inp.poolAPR_30}%</div>
+      </div>
+    </div>
+    <div style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;font-size:12px;color:var(--text2);">0.30% pool generated <strong style="color:var(--amber);">${r.frat}× more fees</strong> than 0.05% this session — algorithm correctly routes to <strong>${r.tier}</strong> for ${r.regime} regime.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Core Algorithm Outputs <button class="info-btn" onclick="showInfo('coreOutputs')">i</button></div>
+    <div class="g3" style="margin-bottom:14px;">
+      <div class="metric amber"><div class="mlbl">Swap Zone — Buy ETH here first</div><div class="mval" style="color:var(--amber);font-size:17px;">$${r.szL} – $${r.szH}</div><div class="msub">VWAP − $12 to VWAP − $5</div></div>
+      <div class="metric green"><div class="mlbl">FairValue / LP Center</div><div class="mval" style="color:var(--green);">$${fmt(r.fv)}</div><div class="msub">0.40V + 0.35S + 0.15LP + 0.10Liq</div></div>
+      <div class="metric ${r.vd<10?'green':r.vd<25?'amber':'red'}"><div class="mlbl">Mint Gate |Spot − VWAP|</div><div class="mval" style="color:${r.vd<10?'var(--green)':r.vd<25?'var(--amber)':'var(--red)'};">$${r.vd}</div><div class="msub">${r.vd<10?'✓ Under $10 — mint now':r.vd<25?'! Stretched — acceptable':'✗ Wait for VWAP reversion'}</div></div>
+    </div>
+    <div class="g3" style="margin-bottom:8px;">
+      <div class="metric red"><div class="mlbl">Lower Band</div><div class="mval" style="color:var(--red);">$${fmt(r.lower)}</div><div class="msub">Set TradingView alert here</div></div>
+      <div class="metric green"><div class="mlbl">LP Center</div><div class="mval" style="color:var(--green);">$${fmt(r.fv)}</div><div class="msub">Half-width: $${r.hw} · Macro ×${r.mm}</div></div>
+      <div class="metric"><div class="mlbl">Upper Band</div><div class="mval">$${fmt(r.upper)}</div><div class="msub">IL at edges: ${r.il}%</div></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:3px;"><span>$${fmt(r.lower)}</span><span>Width: $${r.tw} (${r.bwp}%)</span><span>$${fmt(r.upper)}</span></div>
+    <div class="band-bar">
+      <div style="position:absolute;inset:0;background:rgba(29,158,117,0.07);"></div>
+      <div style="position:absolute;left:${szLX}%;top:0;bottom:0;width:${szHX-szLX}%;background:rgba(201,136,42,0.3);"></div>
+      <div style="position:absolute;left:${fvX}%;top:0;bottom:0;width:3px;background:rgba(29,158,117,0.5);transform:translateX(-1px);"></div>
+      <div style="position:absolute;left:${vpX}%;top:0;bottom:0;width:2px;background:var(--amber);transform:translateX(-1px);"></div>
+      <div style="position:absolute;left:${spX}%;top:0;bottom:0;width:2px;background:var(--blue);transform:translateX(-1px);"></div>
+    </div>
+    <div class="band-legend">
+      <div class="band-legend-item"><div class="band-legend-dot" style="background:var(--blue);"></div>Spot $${fmt(inp.spot)}</div>
+      <div class="band-legend-item"><div class="band-legend-dot" style="background:var(--amber);"></div>VWAP $${fmt(inp.vwap)}</div>
+      <div class="band-legend-item"><div class="band-legend-dot" style="background:var(--green);"></div>FairValue $${fmt(r.fv)}</div>
+      <div class="band-legend-item"><div class="band-legend-dot" style="background:rgba(201,136,42,0.6);"></div>Swap zone $${r.szL}–$${r.szH}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Entry Scenarios <button class="info-btn" onclick="showInfo('scenarios')">i</button></div>
+    <div style="font-size:12px;color:var(--text3);font-style:italic;margin-bottom:12px;">"20–30 dollar bands, VWAP centered, 0.05% fee tier — exactly how professional LP desks operate." — Matt Burks</div>
+    <div class="g2">
+      <div class="scenario green">
+        <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:6px;">Scenario 1 — Breakout Confirmation</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">ETH holds above resistance for 20–30 min → momentum is real → enter trend position</div>
+        <div class="code">Entry:    ~$${r.bkE}<br>LP band:  $${r.bkL} – $${r.bkH}<br>Fee tier: 0.30% (trend)</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;">Toggle "Breakout held?" in Market Inputs to activate this scenario</div>
+      </div>
+      <div class="scenario amber">
+        <div style="font-size:12px;font-weight:600;color:var(--amber);margin-bottom:6px;">Scenario 2 — Liquidity Pullback (most common)</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">ETH crosses resistance then dips back — best risk/reward entry at VWAP retest</div>
+        <div class="code">Re-entry: $${r.pbL} – $${r.pbH}<br>Swap:     VWAP−$12 to VWAP−$5<br>Fee tier: 0.05% (range)</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;">Most common setup. Wait for pullback, don't chase the breakout top.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Support & Resistance${inp.breakoutHeld?' <span class="pill pill-green">Post-Breakout: support = prev resistance</span>':''} <button class="info-btn" onclick="showInfo('supRes')">i</button></div>
+    <div class="g2">
+      <div class="metric"><div class="mlbl">Support Levels</div><div style="font-family:var(--mono);font-size:13px;line-height:2;margin-top:6px;">S1: $${r.s1}${inp.breakoutHeld?' ← was resistance':''}<br>S2: $${r.s2}</div></div>
+      <div class="metric"><div class="mlbl">Resistance / Liquidity Above</div><div style="font-family:var(--mono);font-size:13px;line-height:2;margin-top:6px;">R1: $${r.r1}<br>R2: $${r.r2}<br>R3: $${r.r3}</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Scenario Probabilities <button class="info-btn" onclick="showInfo('probs')">i</button></div>
+    <div class="g3">
+      ${[['Range Oscillation',r.fR,'var(--green)','60-70% baseline'],['Bull Breakout',r.fBu,'var(--blue)','20-30% baseline'],['Bear Retrace',r.fBe,'var(--red)','10-20% baseline']].map(([l,v,c,s])=>`<div><div class="mlbl">${l}</div><div style="font-family:var(--mono);font-size:26px;font-weight:700;color:${c};">${v}%</div><div class="msub">${s}</div><div class="pbar-wrap"><div class="pbar" style="width:${v}%;background:${c};"></div></div></div>`).join('')}
+    </div>
+  </div>
+
+  <div class="g2">
+    <div class="card" style="margin-bottom:0;">
+      <div class="card-title">Hedge — CME Micro-ETH Futures <button class="info-btn" onclick="showInfo('hedge')">i</button></div>
+      <div style="font-family:var(--mono);font-size:32px;font-weight:700;margin-bottom:4px;">${r.hedge}%</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">of ETH exposure to short-sell via futures</div>
+      <div class="pbar-wrap" style="height:6px;"><div class="pbar" style="width:${r.hedge}%;background:var(--amber);"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:4px;"><span>50% min</span><span>50–80% range</span><span>80% max</span></div>
+      <div class="info-note" style="margin-top:10px;">You hold ~${r.ethAmt} ETH. At ${r.hedge}% hedge → sell <strong>${r.hContracts} micro-ETH contracts</strong> on tastytrade (each = 0.1 ETH).</div>
+    </div>
+    <div class="card" style="margin-bottom:0;">
+      <div class="card-title">Yield Estimate <button class="info-btn" onclick="showInfo('yield')">i</button></div>
+      <div style="font-family:var(--mono);font-size:32px;font-weight:700;color:var(--green);margin-bottom:4px;">${r.aBPS} bps/day</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">${inp.cyclesPerDay} cycles × ${inp.feePerCycle}% — Matt's confirmed method</div>
+      <div class="g2" style="gap:8px;">
+        <div class="metric green"><div class="mlbl">Daily Gross</div><div class="mval" style="color:var(--green);">$${fmt(r.aDay)}</div></div>
+        <div class="metric"><div class="mlbl">Monthly Gross</div><div class="mval">$${fmt(r.aMo)}</div></div>
+      </div>
+      <div style="font-size:11px;color:${parseFloat(r.pp)>5?'var(--red)':'var(--text3)'};">Pool share: ${r.pp}% of $${r.tvl}M TVL ${parseFloat(r.pp)>5?'← OVERSATURATING':'✓ under 5%'}</div>
+    </div>
+  </div>`;
+}
+
+// ─── RENDER INPUTS ────────────────────────────────────────────────────────────
+const SECTIONS=[
+  {num:'1',title:'Price & VWAP',color:'var(--green)',source:'📍 From: TradingView',info:'priceVwap',full:false,fields:[
+    {label:'Spot Price ($)',key:'spot',hint:'The current ETH price. On TradingView, it\'s the number shown in the top-left of your chart.',placeholder:'e.g. 2336'},
+    {label:'24h VWAP ($)',key:'vwap',hint:'Volume Weighted Average Price — the fair value anchor. Hover over the VWAP line on your TradingView 1H chart to see this number.',placeholder:'e.g. 2310'},
+    {label:'LP Midpoint ($)',key:'lpMid',hint:'The price with the most LP capital on Uniswap. Open the 0.05% ETH/USDC pool page → scroll to the bar chart → find the tallest bar → read that price.',placeholder:'e.g. 2295'},
+  ]},
+  {num:'2',title:'Long Liquidation Zones (below spot)',color:'var(--red)',source:'📍 From: Coinglass → Liquidation Heatmap → ETH',info:'longLiq',full:false,fields:[
+    {label:'Long Liq 1 ($) — nearest cluster below',key:'longLiq1',hint:'The brightest cluster just below current price. These are price levels where long positions get force-liquidated if ETH drops here.',placeholder:'e.g. 2070'},
+    {label:'Long Liq 2 ($)',key:'longLiq2',hint:'Second brightest long liquidation cluster below spot.',placeholder:'e.g. 2050'},
+    {label:'Long Liq 3 ($)',key:'longLiq3',hint:'Third brightest long liquidation cluster below spot.',placeholder:'e.g. 2025'},
+  ]},
+  {num:'3',title:'Short Liquidation Zones (above spot)',color:'var(--green)',source:'📍 From: Coinglass → Liquidation Heatmap → ETH',info:'shortLiq',full:false,fields:[
+    {label:'Short Liq 1 ($) — nearest cluster above',key:'shortLiq1',hint:'The brightest cluster just above current price. Short positions get liquidated here — price often shoots up rapidly through these zones.',placeholder:'e.g. 2380'},
+    {label:'Short Liq 2 ($)',key:'shortLiq2',hint:'Second brightest short liquidation cluster above spot.',placeholder:'e.g. 2360'},
+    {label:'Short Liq 3 ($)',key:'shortLiq3',hint:'Third brightest short liquidation cluster above spot.',placeholder:'e.g. 2340'},
+  ]},
+  {num:'4',title:'Support & Resistance',color:'var(--gray)',source:'📍 From: TradingView chart — recent highs/lows',info:'supResInp',full:false,fields:[
+    {label:'Previous High / Key Resistance ($)',key:'prevHigh',hint:'The most recent major price high or resistance level on your chart. This is where the market previously rejected higher prices.',placeholder:'e.g. 2300'},
+    {label:'Previous Low ($)',key:'prevLow',hint:'The most recent significant low — a price where buyers previously stepped in. Acts as a support floor.',placeholder:'e.g. 2245'},
+    {label:'Breakout held 20-30+ min above resistance?',key:'breakoutHeld',type:'check',hint:'Check this if ETH has held above the previous high for 20-30 minutes. This activates Scenario 1 (Breakout Confirmation) and flips support/resistance levels.'},
+  ]},
+  {num:'5',title:'Volatility',color:'var(--amber)',source:'📍 From: TradingView → ATR indicator (1H chart)',info:'volatility',full:false,fields:[
+    {label:'ATR-14 in $ (1h candles)',key:'atr1h',hint:'Average True Range — how many dollars ETH moves per hour on average. Look at the ATR panel at the bottom of your TradingView chart. Enter the dollar number shown (e.g. 35.42 → enter 35).',placeholder:'e.g. 35'},
+    {label:'Realized Vol 24h (%)',key:'realVol',hint:'How much ETH has actually moved in the last 24h as a percentage. Roughly: (24h high − 24h low) ÷ current price × 100. Typical: 1–3%.',placeholder:'e.g. 1.6'},
+    {label:'Volume Ratio (24h vol ÷ 7d avg)',key:'volRatio',hint:'Is today busier than normal? 1.0 = average day. Over 1.3 = elevated volume = trending market. Under 0.8 = quiet day = range market. Check Uniswap Analytics for 24h vs 7d volume.',placeholder:'e.g. 1.2'},
+  ]},
+  {num:'6',title:'Momentum Indicators',color:'var(--blue)',source:'📍 From: TradingView — RSI, MACD, EMA indicators',info:'momentum',full:false,fields:[
+    {label:'RSI-14 (1h candles)',key:'rsi',hint:'Relative Strength Index. Add RSI indicator on TradingView (1H chart, length 14). Under 30 = oversold (bullish signal). Over 70 = overbought (bearish signal). 45-65 = neutral, best LP zone.',placeholder:'e.g. 55'},
+    {label:'MACD Bullish Cross?',key:'macdBull',type:'check',hint:'Has the MACD line crossed above the signal line on your 1H chart? Add MACD indicator on TradingView. A bullish cross (green crossover) = upward momentum. If unsure, leave unchecked.'},
+    {label:'EMA Slopes Bullish?',key:'emaBull',type:'check',hint:'Are the EMA lines (20 EMA, 50 EMA) pointing upward? Add EMA indicators on TradingView. If the fast EMA (20) is above the slow EMA (50) and both slope up = bullish. If unsure, leave unchecked.'},
+    {label:'Price Acceleration',key:'priceAccel',type:'select',options:[{v:'positive',l:'Positive — price moving up with increasing speed'},{v:'neutral',l:'Neutral — price moving sideways or slowly'},{v:'negative',l:'Negative — price moving down or losing momentum'}],hint:'Is price speeding up or slowing down? If ETH just made a strong move in the last 30 min = positive. Sideways = neutral.'},
+  ]},
+  {num:'7',title:'Perps & Sentiment',color:'var(--purple)',source:'📍 From: Coinglass → Funding Rate + OI',info:'perps',full:false,fields:[
+    {label:'Funding Rate 8h',key:'fundingRate',hint:'How much longs are paying shorts every 8 hours. Positive = longs paying (bullish bias). Negative = shorts paying (bearish bias). Find on Coinglass → Funding Rate → ETH. Enter as decimal: 0.008 = 0.8%.',placeholder:'e.g. 0.008'},
+    {label:'Open Interest Trend',key:'oiTrend',type:'select',options:[{v:'rising',l:'Rising — more people opening new positions'},{v:'flat',l:'Flat — neutral positioning'},{v:'falling',l:'Falling — people closing positions'}],hint:'Is the total amount of open leveraged positions growing or shrinking? Rising OI + rising price = strong trend. Find on Coinglass → Open Interest → ETH.'},
+    {label:'Long/Short Ratio (e.g. 0.58)',key:'lsRatio',hint:'What fraction of leveraged traders are long. 0.58 = 58% longs, 42% shorts. Over 0.68 = crowded longs = mean reversion risk. Under 0.45 = crowded shorts = squeeze risk. Find on Coinglass → Long/Short Ratio → ETH.',placeholder:'e.g. 0.58'},
+  ]},
+  {num:'8',title:'Pool Data — Update Each Session',color:'var(--green)',source:'📍 From: info.uniswap.org → ETH/USDC pools',info:'poolData',full:false,fields:[
+    {label:'0.05% Pool — 24h Fees ($)',key:'poolFees24h_05',hint:'Total fees earned in the 0.05% ETH/USDC Uniswap pool in the last 24h. Find on Uniswap Analytics → ETH/USDC 0.05% row → "Fees" column. Enter in dollars (e.g. $2,700 → enter 2700).',placeholder:'e.g. 2700'},
+    {label:'0.30% Pool — 24h Fees ($)',key:'poolFees24h_30',hint:'Total fees earned in the 0.30% ETH/USDC pool in the last 24h. Same source. This number tells you which pool is most active right now.',placeholder:'e.g. 25000'},
+    {label:'0.05% Pool APR (%)',key:'poolAPR_05',hint:'Annual Percentage Rate for the 0.05% pool. Shown directly on Uniswap Analytics. If not shown: (24h fees ÷ TVL) × 365 × 100. Enter as a number (e.g. 45% → enter 45).',placeholder:'e.g. 45'},
+    {label:'0.30% Pool APR (%)',key:'poolAPR_30',hint:'Annual Percentage Rate for the 0.30% pool. Same calculation. This pool usually has lower APR but earns more during trend moves.',placeholder:'e.g. 28.6'},
+    {label:'0.05% Pool TVL ($M)',key:'poolTVL_05',hint:'Total Value Locked in the 0.05% pool in millions. Enter in millions: "$20.4M" → enter 20.4. This tells you how large the pool is and how much of it your capital represents.',placeholder:'e.g. 20'},
+    {label:'0.30% Pool TVL ($M)',key:'poolTVL_30',hint:'Total Value Locked in the 0.30% pool. Same as above.',placeholder:'e.g. 31.9'},
+  ]},
+  {num:'9',title:'Risk, Capital & Strategy',color:'var(--amber)',source:'📍 Your settings — update as needed',info:'capital',full:false,fields:[
+    {label:'Macro Risk Level',key:'macroRisk',type:'select',options:[{v:'none',l:'None — normal trading day'},{v:'elevated',l:'Elevated — CPI/Fed day (×1.2 bandwidth)'},{v:'high',l:'High — SIT OUT (×1.6 bandwidth)'}],hint:'Is there a major economic event today? Check the economic calendar. On FOMC or CPI days, the algorithm widens your band by 1.6× or recommends sitting out entirely.'},
+    {label:'Bull Asymmetry — shift band upward?',key:'bullBias',type:'check',hint:'In a bull market, check this to shift the top of your band up 30% further and the bottom in 25%. This lets you capture more upside as price climbs. Matt uses this when ETH is clearly trending up.'},
+    {label:'Capital to Deploy ($)',key:'capital',hint:'How much money you are putting into this LP position. The algorithm uses this to calculate your actual dollar returns and your % of pool TVL.',placeholder:'e.g. 100000'},
+    {label:'Target Cycles per Day',key:'cyclesPerDay',hint:'How many times you plan to open and close LP positions per day. Matt\'s target is 6. Each cycle = open a position → earn fees → close it. Start with 3-4 as a beginner.',placeholder:'e.g. 6'},
+    {label:'Fee per Cycle (%)',key:'feePerCycle',hint:'Average fee yield you earn per position cycle. Matt\'s confirmed average from real trades: 0.125%. This is what the return model is based on.',placeholder:'e.g. 0.125'},
+  ]},
+];
+
+function renderInputs(){
+  let html='';
+  for(const sec of SECTIONS){
+    html+=`<div class="inp-section">
+      <div class="inp-section-header" style="border-left:3px solid ${sec.color};">
+        <span class="inp-section-num">${sec.num}</span>
+        <span class="inp-section-title" style="color:${sec.color};">${sec.title}</span>
+        <span class="inp-section-source">${sec.source}</span>
+        <button class="info-btn" onclick="showInfo('${sec.info}')">i</button>
+      </div>
+      <div class="inp-fields">`;
+    for(const f of sec.fields){
+      if(f.type==='check'){
+        html+=`<div class="inp-row ${sec.full?'full-width':''}">
+          <div class="inp-label">${f.label}</div>
+          <div class="check-row">
+            <input type="checkbox" id="inp_${f.key}" ${inp[f.key]?'checked':''} onchange="setInp('${f.key}',this.checked)">
+            <label class="check-lbl" for="inp_${f.key}">${inp[f.key]?'Yes — checked':'No — unchecked'}</label>
+          </div>
+          <div class="inp-hint">${f.hint||''}</div>
+        </div>`;
+      } else if(f.type==='select'){
+        html+=`<div class="inp-row ${sec.full?'full-width':''}">
+          <div class="inp-label">${f.label}</div>
+          <select onchange="setInp('${f.key}',this.value)">
+            ${f.options.map(o=>`<option value="${o.v}" ${inp[f.key]===o.v?'selected':''}>${o.l}</option>`).join('')}
+          </select>
+          <div class="inp-hint">${f.hint||''}</div>
+        </div>`;
+      } else {
+        html+=`<div class="inp-row ${sec.full?'full-width':''}">
+          <div class="inp-label">${f.label}</div>
+          <input type="number" value="${inp[f.key]}" placeholder="${f.placeholder||''}" onchange="setInp('${f.key}',parseFloat(this.value)||0)">
+          <div class="inp-hint"><span class="where">Where to find it:</span> ${f.hint||''}</div>
+        </div>`;
+      }
+    }
+    html+='</div></div>';
+  }
+  document.getElementById('inputs-content').innerHTML=html;
+}
+
+// ─── RENDER RETURNS ───────────────────────────────────────────────────────────
+function renderReturns(){
+  const el=document.getElementById('tab-returns');
+  const r=runAlgo(inp);
+  let rows='';
+  for(const cap of[50000,100000,250000,500000,750000,1000000]){
+    const r2=runAlgo({...inp,capital:cap});
+    const pp=+(cap/1e6/r2.tvl*100).toFixed(1);
+    const act=cap===inp.capital;
+    rows+=`<tr class="${act?'active-row':''}">
+      <td style="font-weight:${act?'600':'400'};color:${act?'var(--text)':'var(--text2)'};">$${(cap/1000).toFixed(0)}K${act?' ←':''}</td>
+      <td style="color:${parseFloat(pp)>5?'var(--red)':'var(--green)'};">${pp}%</td>
+      <td style="color:var(--green);">${r2.aBPS} bps</td>
+      <td style="color:var(--green);">$${fmt(r2.aDay)}</td>
+      <td>$${fmt(r2.aMo)}</td>
+      <td>$${fmt(r2.aYr)}</td>
+      <td style="color:var(--text3);">$${fmt(r2.pDay)}</td>
+    </tr>`;
+  }
+  el.innerHTML=`
+    <div class="g2">
+      <div class="card" style="border-left:3px solid var(--blue);background:var(--blue-bg);margin-bottom:0;">
+        <div class="card-title">Passive — Single Position</div>
+        <div class="code">Pool APR:    ${r.apr}% (${r.tier} tier)<br>Utilization: ${r.fR}% (in-range probability)<br>Net BPS/day: ${r.pBPS}</div>
+        <div class="g2" style="gap:8px;">
+          <div class="metric blue"><div class="mlbl">Daily Net</div><div class="mval" style="color:var(--blue);">$${fmt(r.pDay)}</div></div>
+          <div class="metric"><div class="mlbl">Monthly Net</div><div class="mval">$${fmt(Math.round(r.pDay*30))}</div></div>
+        </div>
+        <div class="info-note">One position held passively. Lower yield but less active management required.</div>
+      </div>
+      <div class="card" style="border-left:3px solid var(--green);background:var(--green-bg);margin-bottom:0;">
+        <div class="card-title">Active Cycling — Matt's Method</div>
+        <div class="code">${inp.cyclesPerDay} cycles × ${inp.feePerCycle}% = ${(inp.cyclesPerDay*inp.feePerCycle).toFixed(3)}% daily gross<br>= ${r.aBPS} bps/day · Confirmed by Matt</div>
+        <div class="g2" style="gap:8px;">
+          <div class="metric green"><div class="mlbl">Daily Gross</div><div class="mval" style="color:var(--green);">$${fmt(r.aDay)}</div></div>
+          <div class="metric"><div class="mlbl">Monthly Gross</div><div class="mval">$${fmt(r.aMo)}</div></div>
+        </div>
+        <div class="info-note">Open → earn fees → close → repeat. Target 6 cycles/day. Higher yield, requires active monitoring.</div>
+      </div>
+    </div>
+    <div style="height:12px;"></div>
+    <div class="card">
+      <div class="card-title">Capital Scenario Table — Active Cycling</div>
+      <table>
+        <thead><tr><th>Capital</th><th>Pool Share</th><th>BPS/day</th><th>Daily Gross</th><th>Monthly</th><th>Annual</th><th>Passive/day</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="info-note">Your current capital ($${(inp.capital/1000).toFixed(0)}K) is highlighted ←. Pool share must stay under 5% to avoid oversaturation. Annual figures assume consistent daily performance — actual results will vary.</div>
+    </div>`;
+}
+
+// ─── GLOSSARY ─────────────────────────────────────────────────────────────────
+const GLOSSARY=[
+  {w:'ATR (Average True Range)',d:'A measure of how much ETH moves in price per candle (usually per hour). ATR of $35 means ETH moves an average of $35 in each 1-hour period. Used to calculate how wide your LP band should be.',eg:'ATR-14 on a 1H chart: "35.42" → the band half-width is 0.65 × $35 = $22.75'},
+  {w:'Basis Points (bps)',d:'A unit equal to 0.01%. Used to express small percentage differences in finance. 75 bps = 0.75%. Matt\'s target is 75 bps/day gross yield from active LP cycling.',eg:'0.125% per cycle × 6 cycles = 0.75% = 75 bps per day'},
+  {w:'Band Width / LP Band',d:'The price range between your lower and upper LP position boundaries. A $20–30 wide band at ~$2,300 ETH means your position covers roughly 1% of price movement. Narrower bands earn more fees per dollar but go out of range more often.',eg:'Lower: $2,289 | Upper: $2,359 | Width: $70'},
+  {w:'Bull Asymmetry',d:'A technique where the upper half of the LP band is made wider than the lower half during bullish markets. The algorithm shifts the top up 30% further and the bottom in 25%, allowing you to capture more of an upward price move before going out of range.',eg:'Normal: center ± $23. With bull asymmetry: center − $17 to center + $30'},
+  {w:'CME Micro-ETH Futures',d:'Small futures contracts traded on the Chicago Mercantile Exchange, each representing 0.1 ETH. Used to hedge your ETH downside risk. Selling these contracts profits when ETH price falls, offsetting losses on your ETH holdings.',eg:'Holding 22 ETH, hedging 65% → sell 143 micro contracts'},
+  {w:'Concentrated Liquidity',d:'A Uniswap V3/V4 feature where LP providers supply liquidity only within a specific price range (e.g. $2,289–$2,359) instead of across all prices. This earns far more fees per dollar but requires active management when price leaves the range.',eg:'$50K in a $70 range earns much more than $50K spread across all ETH prices'},
+  {w:'Corridor (Liquidity Corridor)',d:'The price zone between the nearest long liquidation cluster (below) and the nearest short liquidation cluster (above). Price tends to oscillate within this corridor. The middle of the corridor is the safest place to mint an LP position.',eg:'Long liq at $2,070, Short liq at $2,380 → corridor midpoint at $2,225'},
+  {w:'VWAP (Volume Weighted Average Price)',d:'The average price of ETH weighted by trading volume throughout the day. Institutional traders use this as their fair-value benchmark. When spot is near VWAP, ETH is "fairly priced." The algorithm requires |spot − VWAP| < $10 before minting.',eg:'VWAP at $2,285, Spot at $2,310 → deviation of $25 → wait for pullback'},
+  {w:'FairValue',d:'The algorithm\'s composite price estimate used as the LP band center. Formula: 0.40 × VWAP + 0.35 × Spot + 0.15 × LP Midpoint + 0.10 × Liquidation Midpoint. Called the "Liquidity Gravity Model."',eg:'0.40×2310 + 0.35×2336 + 0.15×2295 + 0.10×2225 = $2,310'},
+  {w:'Fee Tier (0.05% vs 0.30%)',d:'Uniswap charges swappers a fee that goes to LP providers. The 0.05% tier is for range-bound markets with many small traders. The 0.30% tier is for trend markets with large, institutional swaps. The algorithm automatically selects the right tier based on regime.',eg:'Range market → 0.05% ($2.7K/day fees). Trend market → 0.30% ($25K/day fees) — 9× more'},
+  {w:'Funding Rate',d:'A periodic payment between long and short traders in perpetual futures markets. Positive funding (longs pay shorts) signals bullish bias. Negative funding (shorts pay longs) signals bearish pressure. Checked on Coinglass every 8 hours.',eg:'Funding rate: +0.008 = longs paying 0.8% every 8h → bullish sentiment'},
+  {w:'Hedge',d:'A position that offsets risk from another position. In this strategy, you sell CME micro-ETH futures contracts to protect against ETH price dropping while you hold ETH in your LP position. The hedge earns money when ETH falls, offsetting LP losses.',eg:'Hold $50K of ETH → sell $32.5K of ETH futures (65% hedge) → if ETH drops 10%, futures gain ~$3.25K'},
+  {w:'IL (Impermanent Loss)',d:'The difference in value between holding tokens in an LP position vs just holding them in your wallet. IL occurs because the LP automatically sells ETH as price rises and buys ETH as price falls. With tight $20-30 bands, IL at the edges is typically under 0.1%.',eg:'ETH/USDC band: lower $2,289, upper $2,359. IL at band edge: ~0.04%'},
+  {w:'Liquidity Corridor',d:'See "Corridor"'},
+  {w:'Liquidation Cluster',d:'A price level where many leveraged traders will be automatically force-closed if price reaches it. Long liquidation clusters sit below current price (price drops → longs liquidated). Short clusters sit above (price rises → shorts liquidated). These act as price magnets.',eg:'Short liq cluster at $2,360: when ETH approaches $2,360, short sellers get liquidated, pushing price up sharply through $2,360'},
+  {w:'Liquidation Midpoint',d:'The midpoint between the average long liquidation price and the average short liquidation price. Used as the 4th term (10% weight) in the FairValue formula. Represents where market makers expect price to gravitate.',eg:'Long liq avg: $2,048 | Short liq avg: $2,360 | Midpoint: $2,204'},
+  {w:'LP (Liquidity Provider / Liquidity Position)',d:'Someone who deposits two tokens (e.g. ETH + USDC) into a Uniswap pool. In return, they earn a share of trading fees whenever swaps happen within their price range. This is the core income strategy in this algorithm.',eg:'Deposit $50K ETH + $50K USDC in the $2,289–$2,359 range → earn fees every time someone swaps ETH↔USDC in that range'},
+  {w:'LP Midpoint',d:'The price level on Uniswap\'s tick chart with the highest concentration of LP capital. Found by looking at the bar chart on the Uniswap pool page — the tallest bar. Represents where institutional LP providers have centered their positions.',eg:'Looking at the Uniswap 0.05% pool tick chart — the densest bar is at $2,295 → LP Midpoint = 2295'},
+  {w:'MACD (Moving Average Convergence Divergence)',d:'A momentum indicator on TradingView. A bullish cross occurs when the MACD line crosses above the signal line — indicating upward momentum. Used as a secondary confirmation for directional bias.',eg:'MACD line crosses above signal line on 1H ETH chart → bullish cross → check the MACD checkbox'},
+  {w:'Macro Risk',d:'The risk from major economic events (Fed interest rate decisions, CPI inflation reports, geopolitical news) that can cause sudden large price moves. On high-risk days, the algorithm widens the band 60% or recommends sitting out entirely.',eg:'FOMC day: set Macro Risk = High. Algorithm recommends SIT OUT.'},
+  {w:'MEV (Maximum Extractable Value)',d:'Profit that can be extracted from blockchain transactions by reordering or inserting transactions. For LP providers, this mainly matters as a cost: bots may "sandwich" your large swap orders. For large positions ($100K+), use a private mempool to avoid this.',eg:'Swapping $100K of USDC to ETH without protection: a bot spots it, frontruns and backreads the trade, costing you ~0.1%'},
+  {w:'Minting',d:'The act of creating a new LP position on Uniswap. When you "mint" a position, you deposit ETH and USDC within your chosen price range and receive an LP NFT representing your position. You "burn" or remove it when closing.',eg:'Go to Uniswap → Pool → New Position → set range → click Add → mint the position'},
+  {w:'Open Interest (OI)',d:'The total dollar value of all open leveraged futures positions. Rising OI + rising price = strong trend with real conviction. Falling OI + rising price = short covering (weaker). Monitored on Coinglass.',eg:'OI rising from $8B to $9B while ETH climbs → strong bull trend with new money entering'},
+  {w:'Out of Range',d:'When ETH price moves outside your LP band (above the upper or below the lower boundary). Your position stops earning fees and becomes 100% one token — all USDC if above the band, all ETH if below. You must close and remint.',eg:'Band: $2,289–$2,359. ETH rises to $2,400 → position is out of range → all USDC held → remove and remint higher'},
+  {w:'Perps / Perpetual Futures',d:'Derivatives contracts that let traders bet on ETH price going up (long) or down (short) with leverage, with no expiration date. They pay a funding rate every 8h to stay balanced. Liquidation clusters from perps are key inputs in this algorithm.',eg:'A trader opens a 10× leveraged long at $2,200. If ETH drops to $2,000, they get liquidated → forced selling adds to downward pressure'},
+  {w:'Pool Share',d:'Your capital as a percentage of the total pool TVL. You earn this percentage of all fees generated. Must stay under 5% to avoid oversaturation (where adding more capital dilutes your own yield).',eg:'Your $100K ÷ $20M pool TVL = 0.5% pool share → you earn 0.5% of all 0.05% tier fees'},
+  {w:'Regime (Range vs Trend)',d:'Whether the market is oscillating within a range (most common) or making a sustained directional move (trend). Determined by ATR and volume ratio. Range → use 0.05% fee tier + tight bands. Trend → use 0.30% tier + wider bands.',eg:'ATR: $20, Volume ratio: 0.9 → range regime. ATR: $55, Volume ratio: 1.5 → trend regime'},
+  {w:'RSI (Relative Strength Index)',d:'A momentum indicator scaled 0-100. Under 30 = oversold (potential bounce coming). Over 70 = overbought (potential pullback coming). 45-65 = neutral zone = best LP entry conditions. Set to 14-period on 1H chart on TradingView.',eg:'RSI at 55 on the 1H ETH chart → neutral zone → favorable LP entry conditions'},
+  {w:'Round Number Trap',d:'When ETH price breaks through a psychologically significant round number (like $2,300 or $2,400), short sellers get liquidated, causing a brief overshoot above the number — then price often reverts back to VWAP. Minting at the overshoot top traps your band too high.',eg:'ETH breaks $2,300 → shorts get liquidated → price spikes to $2,315 → do NOT mint here → wait for pullback to $2,285–$2,295 swap zone'},
+  {w:'Swap Zone',d:'The price range where you should buy ETH before minting your LP position. Calculated as VWAP − $12 to VWAP − $5. Buying here (slightly below VWAP) gives you a better average entry and lower impermanent loss risk.',eg:'VWAP at $2,310 → Swap Zone: $2,298–$2,305. Buy ETH here, not at $2,336 spot.'},
+  {w:'Tick (Uniswap Tick)',d:'A discrete price level on Uniswap. LP positions are bounded by ticks. The "tick heatmap" shows how much liquidity is concentrated at each tick level. The densest tick is the LP Midpoint used in the FairValue formula.',eg:'On the Uniswap pool page, the bar chart shows tick concentrations. The tallest bar at $2,295 → LP Midpoint = 2295'},
+  {w:'TVL (Total Value Locked)',d:'The total dollar value of all assets deposited in a liquidity pool. Larger TVL = more stable, deeper liquidity. Your pool share = your capital ÷ TVL.',eg:'0.05% ETH/USDC pool TVL: $20.4M → your $100K = 0.49% of the pool'},
+  {w:'Utilization',d:'The percentage of time your LP position is "in range" and actively earning fees. A utilization of 65% means your position earns fees ~65% of the time. Higher utilization = better yield but requires tighter bands that go out of range more often.',eg:'$100K at 45% APR pool with 65% utilization → effective daily yield = 45%/365 × 65% = 0.080%/day'},
+  {w:'VWAP Equilibrium',d:'The condition where spot price is within $10 of VWAP. This is the algorithm\'s primary mint gate — the best time to open an LP position because price is at "fair value" and mean-reversion risk is lowest.',eg:'VWAP: $2,310 | Spot: $2,305 | Deviation: $5 → VWAP equilibrium → mint gate is open'},
+];
+
+function renderGlossary(filter=''){
+  const q=filter.toLowerCase();
+  const filtered=GLOSSARY.filter(g=>g.w.toLowerCase().includes(q)||g.d.toLowerCase().includes(q));
+  if(filtered.length===0){document.getElementById('gloss-body').innerHTML='<div style="color:var(--text3);padding:20px 0;">No terms match your search.</div>';return;}
+  let html='';
+  let curLetter='';
+  for(const g of filtered.sort((a,b)=>a.w.localeCompare(b.w))){
+    const L=g.w[0].toUpperCase();
+    if(L!==curLetter&&!q){html+=`<div class="gloss-letter">${L}</div>`;curLetter=L;}
+    html+=`<div class="gloss-term">
+      <div class="gloss-word">${g.w}</div>
+      <div class="gloss-def">${g.d}${g.eg?`<br><span class="eg">Example: ${g.eg}</span>`:''}</div>
+    </div>`;
+  }
+  document.getElementById('gloss-body').innerHTML=html;
+}
+function filterGlossary(v){renderGlossary(v);}
+
+// ─── INFO POPUPS ──────────────────────────────────────────────────────────────
+const INFO={
+  corridor:{t:'Mid-Liquidity Corridor',b:`<p>The <strong>liquidity corridor</strong> is the price zone between the nearest long liquidation cluster (below current price) and the nearest short liquidation cluster (above).</p>
+    <p style="margin-top:10px;">Price gravitates toward the middle of this corridor because that's where the most trading activity happens. The <strong>danger zone</strong> (top 20%) is where minting will trap your band too high — if price reverts, you'll go out of range immediately.</p>
+    <div class="ex">Corridor: $2,070 (long liq) to $2,380 (short liq)<br>Midpoint: $2,225<br>Ideal mint zone: $2,140–$2,310</div>
+    <p style="margin-top:10px;">Matt's rule: <em>"The real danger zone would be minting near $2,360, not $2,312."</em></p>`},
+  feeTier:{t:'Fee Tier Selection',b:`<p>Uniswap pools charge a fixed % fee on every swap. This fee goes to LP providers like you.</p>
+    <ul style="margin-top:10px;padding-left:16px;line-height:2;">
+      <li><strong>0.05% pool</strong>: Best for range-bound markets. Many smaller traders. Higher fee frequency.</li>
+      <li><strong>0.30% pool</strong>: Best for trending markets. Larger institutional swaps. Higher fee per swap.</li>
+    </ul>
+    <div class="ex">March 16 session: 0.05% earned $2.7K/day. 0.30% earned $25K/day. That's 9.3× more — confirming trend regime.</div>
+    <p style="margin-top:10px;">The algorithm selects automatically based on ATR and volume ratio.</p>`},
+  coreOutputs:{t:'Core Algorithm Outputs Explained',b:`<p><strong>Swap Zone</strong>: Where to buy ETH before minting. Always VWAP − $12 to VWAP − $5. Buying slightly below VWAP gives you a better cost basis.</p>
+    <p style="margin-top:10px;"><strong>FairValue</strong>: The composite LP band center = 0.40 × VWAP + 0.35 × Spot + 0.15 × LP Midpoint + 0.10 × Liquidation Midpoint.</p>
+    <p style="margin-top:10px;"><strong>Mint Gate</strong>: |Spot − VWAP|. Must be under $10 for ideal entry. Under $25 is acceptable. Over $25 = wait.</p>
+    <p style="margin-top:10px;"><strong>LP Band</strong>: Lower = FairValue − (0.65 × ATR × macro factor × bull bias). Upper = FairValue + same. The amber zone on the bar is your swap zone.</p>`},
+  scenarios:{t:'Entry Scenarios — Breakout vs Pullback',b:`<p>When ETH hits a major resistance level (e.g. $2,300), two things can happen:</p>
+    <p style="margin-top:10px;"><strong>Scenario 1 — Breakout Confirmation</strong>: ETH holds above resistance for 20–30 minutes. Momentum is real. Enter a trend position using the 0.30% tier with a band centered at the breakout level.</p>
+    <p style="margin-top:10px;"><strong>Scenario 2 — Liquidity Pullback (most common)</strong>: ETH crosses resistance briefly (shorts get liquidated → brief overshoot) then dips back toward VWAP. This pullback is the best entry — it's simultaneously a VWAP retest and a breakout retest, giving the lowest IL risk.</p>
+    <div class="ex">ETH breaks $2,300 → do NOT mint at $2,315 (overshoot)<br>Wait → price dips to $2,290–$2,298 (swap zone)<br>→ Swap there + mint band $2,270–$2,310</div>`},
+  supRes:{t:'Support & Resistance',b:`<p><strong>Support</strong>: A price level where buyers historically step in — acts as a floor. Your LP lower band should sit near or above strong support.</p>
+    <p style="margin-top:10px;"><strong>Resistance</strong>: A price level where sellers historically appear — acts as a ceiling. Your LP upper band should sit near resistance (that's where shorts get liquidated).</p>
+    <p style="margin-top:10px;"><strong>Key rule from Matt</strong>: After a confirmed breakout, <em>support = previous resistance</em>. If ETH breaks above $2,300 and holds, then $2,300 becomes the new support floor.</p>
+    <div class="ex">Before breakout: Support $2,245 | Resistance $2,300<br>After confirmed breakout: Support $2,300 | New resistance $2,335, $2,360, $2,400</div>`},
+  probs:{t:'Scenario Probabilities',b:`<p>The algorithm estimates the probability of three outcomes for the next few hours:</p>
+    <ul style="margin-top:10px;padding-left:16px;line-height:2.2;">
+      <li><strong>Range Oscillation</strong>: Price stays within your band, bouncing around. Your position earns fees throughout. Baseline: 60–70%.</li>
+      <li><strong>Bull Breakout</strong>: Price runs above your upper band. You sell all ETH into USDC. You made money on the token appreciation + fees. Baseline: 20–30%.</li>
+      <li><strong>Bear Retrace</strong>: Price drops below your lower band. Position goes out of range. Your hedge kicks in. Baseline: 10–20%.</li>
+    </ul>
+    <p style="margin-top:10px;">These are adjusted by funding rate, open interest, RSI, MACD, and liquidation cluster proximity.</p>`},
+  hedge:{t:'CME Micro-ETH Futures Hedging',b:`<p>When you hold ETH in an LP position, you're exposed to ETH price drops. The hedge protects you.</p>
+    <p style="margin-top:10px;"><strong>How it works</strong>: You <em>sell</em> CME micro-ETH futures contracts on tastytrade. Each contract = 0.1 ETH. If ETH drops $100, your futures position gains ~$100 per contract (offsetting your ETH loss).</p>
+    <p style="margin-top:10px;"><strong>Hedge %</strong>: 50–80% of your ETH. Matt found 50–80% is optimal — full 100% hedging cuts too much into profit during bull moves.</p>
+    <div class="ex">Holding 22 ETH, hedge 65%:<br>22 × 65% = 14.3 ETH to hedge<br>14.3 ÷ 0.1 = 143 micro contracts to sell</div>
+    <p style="margin-top:10px;"><strong>Goal</strong>: The futures don't need to make money — they just need to offset losses on your ETH if price drops sharply while you're in a position.</p>`},
+  yield:{t:'Yield — Passive vs Active Cycling',b:`<p><strong>Passive yield</strong>: One position held for a long time. You earn (pool APR ÷ 365 × utilization rate) per day. Simple but lower returns.</p>
+    <p style="margin-top:10px;"><strong>Active cycling (Matt's method)</strong>: Open position → earn fees → close → repeat. Each cycle earns ~0.125%. At 6 cycles/day: 0.125% × 6 = 0.75% daily gross = 75 bps/day.</p>
+    <div class="ex">$100K capital × 0.75% daily = $750/day gross<br>Net after gas + hedge friction: ~$600–650/day on good days<br>Monthly gross target: ~$22,500</div>
+    <p style="margin-top:10px;">The key to active cycling is tight timing: enter when the algorithm says ENTER, close when out of range or fee target hit. Don't hold positions overnight if you can help it.</p>`},
+  priceVwap:{t:'Price & VWAP Section',b:`<p>These three inputs form the foundation of the FairValue calculation that determines your LP band center.</p>
+    <ul style="margin-top:10px;padding-left:16px;line-height:2.2;">
+      <li><strong>Spot</strong>: Current ETH price. Changes every second. TradingView top-left.</li>
+      <li><strong>VWAP</strong>: The institutional fair-value anchor. Resets daily. The VWAP line on your TradingView 1H chart.</li>
+      <li><strong>LP Midpoint</strong>: Where institutional LP capital is concentrated on Uniswap. Manually pulled from the tick heatmap — Matt adds this manually every session.</li>
+    </ul>
+    <p style="margin-top:10px;">All three together = where professional money thinks ETH should be right now.</p>`},
+  longLiq:{t:'Long Liquidation Zones',b:`<p>On Coinglass's Liquidation Heatmap, clusters below current price represent price levels where leveraged long traders get automatically force-closed (liquidated) if ETH drops there.</p>
+    <p style="margin-top:10px;">When price approaches these clusters: the forced selling from liquidated longs can cascade, pushing price further down momentarily before bouncing. These zones also act as <strong>support magnets</strong> — institutions often place buy orders just above them.</p>
+    <div class="ex">Long liq cluster at $2,070: if ETH drops toward $2,070, many longs get liquidated, causing a sharp move down then likely bounce. Set your lower LP band above $2,070.</div>
+    <p style="margin-top:10px;">Enter the 3 nearest/brightest clusters below spot. Read price level from the left axis on the Coinglass heatmap.</p>`},
+  shortLiq:{t:'Short Liquidation Zones',b:`<p>Short liquidation clusters sit above current price. When ETH rises to these levels, leveraged short sellers get force-liquidated — their positions are automatically closed by buying ETH, which accelerates the upward move.</p>
+    <p style="margin-top:10px;">This creates the <strong>round number trap</strong>: as ETH approaches $2,300 or $2,400, shorts get liquidated → brief overshoot → then price often snaps back to VWAP. Never mint at the overshoot top.</p>
+    <div class="ex">Short liq cluster at $2,360: ETH approaches $2,360 → shorts liquidated → price briefly overshoots to $2,380 → reverts to $2,310. If you minted at $2,380, you'd immediately be out of range.</div>`},
+  supResInp:{t:'Support & Resistance Inputs',b:`<p><strong>Previous High</strong>: The most recent significant price peak. This is the resistance level. The algorithm uses it to calculate resistance targets R1/R2/R3 and the Scenario 1 entry price.</p>
+    <p style="margin-top:10px;"><strong>Previous Low</strong>: The most recent significant price trough. Acts as support. Used to calculate S1/S2 support levels where your lower band should anchor.</p>
+    <p style="margin-top:10px;"><strong>Breakout Held</strong>: Check this when ETH has held above the Previous High for 20-30 minutes. This triggers the support flip (support = previous resistance) and activates Scenario 1 with a band centered at the breakout level.</p>
+    <div class="ex">Previous High: $2,300. ETH crosses $2,300 and holds for 25 minutes → check "Breakout held?" → S1 becomes $2,300, new resistance targets appear at $2,335, $2,360, $2,400</div>`},
+  volatility:{t:'Volatility Inputs',b:`<p><strong>ATR-14</strong>: The most important single input. Sets your band width via: half-width = 0.65 × ATR-14. A $35 ATR → $22.75 half-width → ~$45 total band. Always enter in dollars, not percent.</p>
+    <p style="margin-top:10px;"><strong>Realized Vol</strong>: How much ETH has actually moved in 24h as a percentage. Secondary input that affects regime classification.</p>
+    <p style="margin-top:10px;"><strong>Volume Ratio</strong>: Today's 24h volume vs the 7-day average. Over 1.3 = trending. Under 0.8 = quiet. Critical for fee tier selection: high volume ratio → trend → 0.30% tier.</p>
+    <div class="ex">ATR: $35 | Vol Ratio: 1.2 → "transitional" regime<br>ATR: $52 | Vol Ratio: 1.5 → "trend" regime → use 0.30% tier</div>`},
+  momentum:{t:'Momentum Indicators',b:`<p>These four indicators collectively determine whether the algorithm favors <strong>trend continuation</strong> (higher bull probability) or <strong>mean reversion</strong> (higher range probability).</p>
+    <p style="margin-top:10px;">They're secondary signals — they adjust the probability model but don't override the primary VWAP deviation gate. Even if all four are bullish, you still need to wait for |Spot − VWAP| < $25 before minting.</p>
+    <ul style="margin-top:10px;padding-left:16px;line-height:2.2;">
+      <li><strong>RSI</strong>: Most reliable single momentum signal. 45-65 = neutral best.</li>
+      <li><strong>MACD</strong>: Confirms direction but lags price. Good for trend confirmation.</li>
+      <li><strong>EMA slopes</strong>: Structural trend direction. Fast EMA above slow EMA = bullish structure.</li>
+      <li><strong>Price acceleration</strong>: Is the move speeding up or slowing? Speeds up = momentum. Slows = watch for reversal.</li>
+    </ul>`},
+  perps:{t:'Perpetual Futures & Sentiment',b:`<p>These inputs come from the leveraged derivatives market — professional traders betting on ETH's future price. They're the most forward-looking signals in the algorithm.</p>
+    <p style="margin-top:10px;"><strong>Funding Rate</strong>: The key sentiment indicator. Strongly positive (>0.015) = too many longs → watch for reversal. Strongly negative (<−0.01) = too many shorts → squeeze potential. Neutral (±0.005) = balanced.</p>
+    <p style="margin-top:10px;"><strong>Open Interest trend</strong>: Rising OI = new money entering → conviction. Falling OI = positions closing → fading move.</p>
+    <p style="margin-top:10px;"><strong>Long/Short Ratio</strong>: Over 0.68 (68% longs) = crowded → mean reversion risk. Under 0.45 = crowded shorts → squeeze risk. 0.50–0.60 = balanced best.</p>
+    <div class="ex">Funding +0.008, OI rising, L/S ratio 0.58 → healthy bullish environment → normal bias weights apply</div>`},
+  poolData:{t:'Pool Data Inputs',b:`<p>These numbers come from Uniswap Analytics and must be updated at the start of each trading session — they change daily based on market activity.</p>
+    <p style="margin-top:10px;"><strong>24h Fees</strong>: The most important pool data point. Tells you which pool is most active right now. If the 0.30% pool earns 9× more fees than the 0.05% pool, you're in a trend market and should use 0.30%.</p>
+    <p style="margin-top:10px;"><strong>APR</strong>: Annualized fee return based on current 24h activity. Used for the passive yield model. Changes significantly day to day.</p>
+    <p style="margin-top:10px;"><strong>TVL</strong>: How large the pool is. Your pool share = your capital ÷ TVL. Keep under 5% to avoid impacting your own yields.</p>
+    <div class="ex">0.05% pool: $2.7K fees/day, $20M TVL, 45% APR<br>0.30% pool: $25K fees/day, $31.9M TVL, 28.6% APR<br>Fee ratio: 9.3× → clear trend regime → use 0.30%</div>`},
+  capital:{t:'Risk, Capital & Strategy Settings',b:`<p>These settings control the scale and style of your trading. They don't change daily — set them once and only adjust when your strategy changes.</p>
+    <p style="margin-top:10px;"><strong>Macro Risk</strong>: Check the economic calendar before each session. FOMC and CPI days have outsized volatility — the algorithm widens bands 60% or recommends sitting out entirely.</p>
+    <p style="margin-top:10px;"><strong>Bull Asymmetry</strong>: During clear uptrends, shift the top of the band up 30% further. You'll sell ETH at progressively higher prices rather than dumping it all at the center. Matt's "human element" adjustment.</p>
+    <p style="margin-top:10px;"><strong>Cycles/Day and Fee/Cycle</strong>: Start conservative (3 cycles, 0.125%). As you get faster at execution, increase cycles. Matt's 6-cycle target was built over time — don't start there.</p>`},
+};
+
+function showInfo(key){
+  const d=INFO[key];if(!d)return;
+  document.getElementById('popup-title').textContent=d.t;
+  document.getElementById('popup-body').innerHTML=d.b;
+  document.getElementById('popup-overlay').classList.add('open');
+}
+function closePopup(e){if(e.target===document.getElementById('popup-overlay'))closePopupDirect();}
+function closePopupDirect(){document.getElementById('popup-overlay').classList.remove('open');}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePopupDirect();});
+
+// ─── CONTROLS ─────────────────────────────────────────────────────────────────
+function setInp(key,val){
+  inp[key]=val;save();
+  if(document.getElementById('tab-output').classList.contains('active'))renderOutput();
+  if(document.getElementById('tab-inputs').classList.contains('active'))renderInputs();
+  if(document.getElementById('tab-returns').classList.contains('active'))renderReturns();
+}
+function resetInputs(){
+  if(confirm('Reset all inputs to March 16 session defaults?')){
+    inp={...DEFAULT};save();renderInputs();renderOutput();
+  }
+}
+function switchTab(name,btn){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name==='output')renderOutput();
+  else if(name==='inputs')renderInputs();
+  else if(name==='returns')renderReturns();
+  else if(name==='glossary')renderGlossary();
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+renderOutput();
+renderInputs();
+</script>
+</body>
+</html>
